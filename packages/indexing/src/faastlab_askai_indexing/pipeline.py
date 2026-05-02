@@ -1,0 +1,284 @@
+"""Ingestion pipeline — connector → parse → chunk → embed → store.
+
+Designed to be runnable from anywhere (a Celery task, a CLI, a unit
+test). The pipeline takes:
+- A `tenant_id` (UUID of the destination tenant)
+- A connector that yields `SourceDocument`s
+
+…and writes:
+- One row per document into `documents` (with `content_hash`, `storage_key`)
+- One row per chunk into `chunks` (with embedding via vector adapter)
+- One row per ingestion into `ingestion_jobs` (state machine)
+- The original bytes into MinIO/S3 storage
+
+Idempotency:
+- If a `(tenant_id, source_uri)` already exists with the same `content_hash`,
+  the document is skipped.
+- If the hash differs, existing chunks are deleted and the doc is re-indexed
+  in place (the document_id is preserved so external references survive).
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from faastlab_askai_core.adapters import EmbeddingsAdapter, StorageAdapter, VectorStoreAdapter
+from faastlab_askai_core.config import Settings, get_settings
+from faastlab_askai_core.db import Chunk as DbChunk
+from faastlab_askai_core.db import Document as DbDocument
+from faastlab_askai_core.db import IngestionJob, get_sessionmaker
+from faastlab_askai_core.factory import get_embeddings, get_storage, get_vector_store
+
+from faastlab_askai_indexing.chunkers.router import get_chunker
+from faastlab_askai_indexing.connectors.base import SourceDocument
+from faastlab_askai_indexing.hashing import content_hash
+from faastlab_askai_indexing.parsers.router import detect_content_type, get_parser
+
+if TYPE_CHECKING:
+    from faastlab_askai_indexing.connectors.base import Connector
+
+log = logging.getLogger(__name__)
+
+EMBED_BATCH_SIZE = 64
+
+
+@dataclass(slots=True)
+class IngestionResult:
+    document_id: UUID
+    job_id: UUID
+    source_uri: str
+    chunks_written: int
+    skipped: bool = False
+    note: str = ""
+
+
+class IngestionPipeline:
+    """Orchestrates the parse → chunk → embed → store flow per tenant."""
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        *,
+        settings: Settings | None = None,
+        embeddings: EmbeddingsAdapter | None = None,
+        storage: StorageAdapter | None = None,
+        vector_store: VectorStoreAdapter | None = None,
+    ) -> None:
+        self._tenant_id = tenant_id
+        self._settings = settings or get_settings()
+        self._embeddings = embeddings or get_embeddings()
+        self._storage = storage or get_storage()
+        self._vector_store = vector_store or get_vector_store()
+        self._sessionmaker = get_sessionmaker()
+
+    # ---- Public ----------------------------------------------------------
+
+    async def ingest(self, connector: "Connector") -> AsyncIterator[IngestionResult]:
+        """Run the connector to completion, yielding one result per doc."""
+        async for source in connector.iter_documents():
+            try:
+                yield await self.ingest_one(source)
+            except Exception as exc:  # noqa: BLE001 — capture per-doc failures
+                log.exception("Ingestion failed for %s", source.source_uri)
+                yield IngestionResult(
+                    document_id=uuid4(),
+                    job_id=uuid4(),
+                    source_uri=source.source_uri,
+                    chunks_written=0,
+                    skipped=True,
+                    note=f"error: {exc}",
+                )
+
+    async def ingest_one(self, source: SourceDocument) -> IngestionResult:
+        """Ingest a single source document. Idempotent on `(tenant, source_uri)`."""
+        digest = content_hash(source.data)
+        async with self._sessionmaker() as session:
+            job = await self._open_job(session, source)
+            try:
+                doc, was_update = await self._upsert_document(
+                    session, source, digest=digest
+                )
+                if doc is None:
+                    # Already present, same hash → no work to do.
+                    await self._close_job(session, job, doc_id=None, status="skipped")
+                    return IngestionResult(
+                        document_id=uuid4(),
+                        job_id=job.id,
+                        source_uri=source.source_uri,
+                        chunks_written=0,
+                        skipped=True,
+                        note="already up to date",
+                    )
+
+                if was_update:
+                    # Re-ingestion: clear existing chunks for this doc.
+                    await self._vector_store.delete_document(
+                        tenant_id=self._tenant_id, document_id=doc.id
+                    )
+                    await session.execute(
+                        DbChunk.__table__.delete().where(  # noqa: SLF001
+                            (DbChunk.document_id == doc.id)
+                            & (DbChunk.tenant_id == self._tenant_id)
+                        )
+                    )
+
+                # Persist original bytes to object storage.
+                await self._storage.put(
+                    doc.storage_key or "",
+                    source.data,
+                    content_type=source.content_type,
+                )
+
+                # Parse → chunk → embed → store chunks.
+                content_type = source.content_type or detect_content_type(source.filename)
+                parser = get_parser(content_type)
+                parsed = parser.parse(source.data, filename=source.filename)
+                if doc.title in (None, "") and parsed.title:
+                    doc.title = parsed.title
+
+                chunker = get_chunker(parsed)
+                chunks = chunker.chunk(parsed)
+                chunks_written = await self._write_chunks(session, doc, chunks)
+
+                await session.commit()
+                await self._close_job(
+                    session, job, doc_id=doc.id, status="success"
+                )
+                return IngestionResult(
+                    document_id=doc.id,
+                    job_id=job.id,
+                    source_uri=source.source_uri,
+                    chunks_written=chunks_written,
+                )
+            except Exception as exc:
+                await session.rollback()
+                async with self._sessionmaker() as fresh:
+                    await self._close_job(
+                        fresh, job, doc_id=None, status="failed", error=str(exc)
+                    )
+                raise
+
+    # ---- Internals -------------------------------------------------------
+
+    async def _open_job(
+        self, session: AsyncSession, source: SourceDocument
+    ) -> IngestionJob:
+        job = IngestionJob(
+            tenant_id=self._tenant_id,
+            source_uri=source.source_uri,
+            status="running",
+            started_at=datetime.now(UTC),
+            payload={"filename": source.filename},
+        )
+        session.add(job)
+        await session.flush()
+        return job
+
+    async def _close_job(
+        self,
+        session: AsyncSession,
+        job: IngestionJob,
+        *,
+        doc_id: UUID | None,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        job.status = status
+        job.document_id = doc_id
+        job.finished_at = datetime.now(UTC)
+        if error:
+            job.error = error
+        session.add(job)
+        await session.commit()
+
+    async def _upsert_document(
+        self,
+        session: AsyncSession,
+        source: SourceDocument,
+        *,
+        digest: str,
+    ) -> tuple[DbDocument | None, bool]:
+        """Return (doc, was_update). `doc is None` means "skip — already current"."""
+        existing = await session.execute(
+            select(DbDocument).where(
+                (DbDocument.tenant_id == self._tenant_id)
+                & (DbDocument.source_uri == source.source_uri)
+            )
+        )
+        doc = existing.scalar_one_or_none()
+        if doc is not None and doc.content_hash == digest:
+            return None, False  # already up-to-date — skip
+
+        was_update = doc is not None
+        if doc is None:
+            doc = DbDocument(
+                id=uuid4(),
+                tenant_id=self._tenant_id,
+                title=source.filename or source.source_uri,
+                source_uri=source.source_uri,
+            )
+            session.add(doc)
+
+        doc.content_hash = digest
+        doc.size_bytes = len(source.data)
+        doc.storage_key = f"tenants/{self._tenant_id}/docs/{doc.id}"
+        if source.metadata:
+            doc.metadata_ = {**(doc.metadata_ or {}), **source.metadata}
+        await session.flush()
+        return doc, was_update
+
+    async def _write_chunks(
+        self,
+        session: AsyncSession,
+        doc: DbDocument,
+        chunks: list,
+    ) -> int:
+        if not chunks:
+            return 0
+
+        # 1) Insert the rows so embeddings can update them by id.
+        db_rows: list[DbChunk] = []
+        for ck in chunks:
+            row = DbChunk(
+                id=uuid4(),
+                tenant_id=self._tenant_id,
+                document_id=doc.id,
+                content=ck.text,
+                embedding=[0.0] * self._embeddings.dim,  # placeholder
+                section_path=ck.section_path,
+                page_number=ck.page_number,
+                char_start=ck.char_start,
+                char_end=ck.char_end,
+                token_count=ck.token_count,
+                metadata_=ck.metadata or {},
+            )
+            db_rows.append(row)
+        session.add_all(db_rows)
+        await session.flush()
+
+        # 2) Embed in batches and update.
+        for i in range(0, len(db_rows), EMBED_BATCH_SIZE):
+            batch = db_rows[i : i + EMBED_BATCH_SIZE]
+            vectors = await self._embeddings.embed_batch([r.content for r in batch])
+            await self._vector_store.upsert_batch(
+                tenant_id=self._tenant_id,
+                items=[
+                    {
+                        "chunk_id": r.id,
+                        "document_id": doc.id,
+                        "embedding": v,
+                        "metadata": r.metadata_,
+                    }
+                    for r, v in zip(batch, vectors, strict=True)
+                ],
+            )
+
+        return len(db_rows)

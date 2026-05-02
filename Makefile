@@ -88,7 +88,11 @@ dev: up migrate  ## Start infra and run API + worker (foreground)
 
 .PHONY: worker
 worker:  ## Run Celery worker (in a second terminal)
-	$(UV) run celery -A faastlab_askai_indexing.tasks worker --loglevel=info
+	$(UV) run celery -A faastlab_askai_indexing.celery_app:celery_app worker --loglevel=info
+
+.PHONY: ingest
+ingest:  ## Ingest local files: make ingest TENANT=demo-public PATH=./corpus/uk_finreg/_downloads
+	$(UV) run python -m faastlab_askai_indexing.cli --tenant $(TENANT) --path $(PATH)
 
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
