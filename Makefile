@@ -107,6 +107,11 @@ ask:  ## Ask AI: make ask TENANT=demo-public QUERY="..." [SESSION=uuid] [INCLUDE
 	$(UV) run python -m faastlab_askai_askai.cli --tenant $(TENANT) --query "$(QUERY)" \
 	  $${SESSION:+--session $$SESSION} $${INCLUDE_SUPERSEDED:+--include-superseded}
 
+.PHONY: summarise
+summarise:  ## Summarise tenant docs: make summarise TENANT=demo-public [DOCUMENT=uuid] [FORCE=1]
+	$(UV) run python -m faastlab_askai_summarisation.cli --tenant $(TENANT) \
+	  $${DOCUMENT:+--document $$DOCUMENT} $${FORCE:+--force}
+
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
 	cd apps/web && npm install && npm run dev

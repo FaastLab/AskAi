@@ -1,11 +1,24 @@
 [project]
 name = "faastlab-askai-summarisation"
 version = "0.1.0"
-description = "Map-reduce summarisation, query-focused mode. Phase 4."
+description = "Map-reduce summarisation + keyphrase extraction for AskAi (Phase 4)."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
-dependencies = ["faastlab-askai-core"]
+
+dependencies = [
+  "faastlab-askai-core",
+  "faastlab-askai-indexing",
+  "tiktoken>=0.8",
+  "celery[redis]>=5.4",
+  "tenacity>=9.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
 
 [build-system]
 requires = ["hatchling"]
