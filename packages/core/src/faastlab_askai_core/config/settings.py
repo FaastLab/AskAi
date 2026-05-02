@@ -7,10 +7,30 @@ package imports `get_settings()` rather than reading `os.environ` directly.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _find_env_file() -> Path | None:
+    """Walk up from this file to find the project-root `.env`.
+
+    Without this, running tools from a subdir (e.g. `cd packages/core &&
+    alembic upgrade head` in the Makefile) makes Pydantic Settings look
+    for `.env` relative to cwd and silently fall back to defaults — which
+    led to migrations connecting to the wrong Postgres on port 5432.
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [here, *here.parents]:
+        env = candidate / ".env"
+        if env.exists():
+            return env
+        if (candidate / "pyproject.toml").exists() and (candidate / "packages").is_dir():
+            # Found the workspace root — stop even if no .env is present.
+            return env if env.exists() else None
+    return None
 
 # Provider literals — adding a new adapter means adding it here too.
 LLMProvider = Literal["openai", "azure", "anthropic", "bedrock", "ollama"]
@@ -25,7 +45,7 @@ PdfParser = Literal["pymupdf", "unstructured", "docling"]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
