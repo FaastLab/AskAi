@@ -1,5 +1,7 @@
 # FaastLab AskAi
 
+<img width="1550" height="906" alt="image" src="https://github.com/user-attachments/assets/819d4762-1680-42e0-a11a-ae67a1ab9023" />
+
 > **The open knowledge platform for humans and AI agents.**
 > Ingest documents once. Query via chat, REST, MCP, or SDK. Deploy fully open-source, on Azure, on AWS, on-prem, or hybrid.
 
