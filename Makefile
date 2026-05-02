@@ -96,7 +96,11 @@ ingest:  ## Ingest local files: make ingest TENANT=demo-public SOURCE=./corpus/u
 
 .PHONY: search
 search:  ## Search: make search TENANT=demo-public QUERY="capital requirements" [K=5]
-	$(UV) run python -m faastlab_askai_search.cli --tenant $(TENANT) --query $(QUERY) --k $${K:-5}
+	$(UV) run python -m faastlab_askai_search.cli --tenant $(TENANT) --query "$(QUERY)" --k $${K:-5}
+
+.PHONY: ask
+ask:  ## Same as search but always prints JSON: make ask TENANT=demo-public QUERY="..." [K=5]
+	$(UV) run python -m faastlab_askai_search.cli --tenant $(TENANT) --query "$(QUERY)" --k $${K:-5} --json
 
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
