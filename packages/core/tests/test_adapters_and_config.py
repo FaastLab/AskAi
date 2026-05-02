@@ -60,11 +60,16 @@ def test_exception_tree() -> None:
     assert issubclass(AdapterNotFoundError, ConfigurationError)
 
 
-def test_llm_factory_raises_until_phase5() -> None:
-    """LLM adapter lands in Phase 5 (Ask AI). Until then, factory raises."""
+def test_llm_factory_returns_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 5 wires up OpenAI chat completions — factory returns an adapter."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
     reset_factory_cache()
-    with pytest.raises(AdapterNotFoundError):
-        get_llm()
+    from faastlab_askai_core.config import get_settings as _gs
+
+    _gs.cache_clear()
+    adapter = get_llm()
+    assert hasattr(adapter, "complete")
+    assert hasattr(adapter, "stream")
 
 
 def test_embeddings_factory_returns_adapter(monkeypatch: pytest.MonkeyPatch) -> None:

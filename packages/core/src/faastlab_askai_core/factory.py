@@ -30,9 +30,16 @@ class _RerankerLike(Protocol):
 def get_llm() -> LLMAdapter:
     """Return the configured LLM adapter (memoised)."""
     settings = get_settings()
+    provider = settings.llm_provider
+
+    if provider in {"openai", "azure"}:
+        from faastlab_askai_askai.adapters import OpenAIChatLLM
+
+        return OpenAIChatLLM(settings)
+
     raise AdapterNotFoundError(
-        f"LLM provider {settings.llm_provider!r} not yet wired up. "
-        "Implementations land in Phase 5 (Ask AI module)."
+        f"LLM provider {provider!r} not yet wired up "
+        "(supported: openai, azure)"
     )
 
 

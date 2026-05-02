@@ -1,11 +1,33 @@
 [project]
 name = "faastlab-askai-askai"
 version = "0.1.0"
-description = "Ask AI: LangChain RAG chain + LangGraph multi-step. Phase 5."
+description = "Ask AI — RAG chain, multi-step LangGraph, streaming, citations."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
-dependencies = ["faastlab-askai-core"]
+
+dependencies = [
+  "faastlab-askai-core",
+  "faastlab-askai-search",
+  "faastlab-askai-indexing",
+  # LLM clients
+  "openai>=1.54",
+  "tenacity>=9.0",
+  # LangChain / LangGraph (Phase 5.x — multi-step flow)
+  # Pinned per CLAUDE.md; we only use them for LangGraph in Phase 5.x.
+  "langchain>=0.3,<0.4",
+  "langchain-openai>=0.2",
+  "langgraph>=0.2",
+  # Postgres session memory uses core.db
+  "sqlalchemy>=2.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-mock>=3.14",
+]
 
 [build-system]
 requires = ["hatchling"]
