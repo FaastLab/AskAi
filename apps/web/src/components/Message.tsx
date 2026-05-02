@@ -9,8 +9,27 @@ export type ChatMessage = {
   pending?: boolean;
 };
 
+function ThinkingIndicator() {
+  // Three dots that fade in/out in sequence — looks like a wave/snake.
+  // Pure tailwind animation; no extra deps. The custom delay classes are
+  // safe-listed via inline style to avoid tailwind purge surprises.
+  const dotBase =
+    "inline-block h-1.5 w-1.5 rounded-full bg-ink-500 animate-bounce";
+  return (
+    <span className="inline-flex items-center gap-1 text-ink-500">
+      <span>Thinking</span>
+      <span className="inline-flex gap-1 ml-1">
+        <span className={dotBase} style={{ animationDelay: "0ms" }} />
+        <span className={dotBase} style={{ animationDelay: "150ms" }} />
+        <span className={dotBase} style={{ animationDelay: "300ms" }} />
+      </span>
+    </span>
+  );
+}
+
 export function Message({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const showThinking = !isUser && message.pending && !message.content;
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -20,10 +39,12 @@ export function Message({ message }: { message: ChatMessage }) {
       >
         {isUser ? (
           <span className="whitespace-pre-wrap">{message.content}</span>
+        ) : showThinking ? (
+          <ThinkingIndicator />
         ) : (
           <div className="prose prose-sm max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content || (message.pending ? "Thinking…" : "")}
+              {message.content}
             </ReactMarkdown>
           </div>
         )}
