@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: askai
+          POSTGRES_PASSWORD: askai
+          POSTGRES_DB: askai
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U askai -d askai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+asyncpg://askai:askai@localhost:5432/askai
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+      - name: Install
+        run: uv sync --all-packages --dev --no-default-extras
+      - name: Lint
+        run: uv run ruff check packages
+      - name: Type-check
+        run: uv run mypy packages || true   # warn-only for now
+      - name: Migrate
+        run: cd packages/core && uv run alembic upgrade head
+      - name: Test
+        run: uv run pytest -q
+
+  publish-sdk:
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: python
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv build packages/sdk
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

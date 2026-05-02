@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: askai-worker
+  labels:
+    app: askai
+    component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: askai
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: askai
+        component: worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["celery"]
+          args:
+            - "-A"
+            - "faastlab_askai_indexing.celery_app:celery_app"
+            - "worker"
+            - "--loglevel=info"
+            - "--concurrency=2"
+          envFrom:
+            - configMapRef:
+                name: askai-env
+            - secretRef:
+                name: askai-secrets
+          resources:
+{{ toYaml .Values.worker.resources | indent 12 }}

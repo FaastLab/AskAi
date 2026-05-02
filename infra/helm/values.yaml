@@ -1,0 +1,67 @@
+# Default values — override per environment.
+
+image:
+  repository: ghcr.io/faastlab/askai
+  tag: 0.1.0
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 2
+  port: 8000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+worker:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+
+postgres:
+  external: false                # set true and fill `externalUrl` for managed PG
+  externalUrl: ""
+  storage: 20Gi
+  image: pgvector/pgvector:pg16
+
+redis:
+  external: false
+  externalUrl: ""
+
+minio:
+  external: false
+  endpoint: ""
+  bucket: askai
+
+ingress:
+  enabled: true
+  className: nginx
+  host: askai.example.com
+  tls: true
+
+env:
+  APP_ENV: prod
+  RERANKER_PROVIDER: bge
+  EMBEDDINGS_PROVIDER: openai
+  LLM_PROVIDER: openai
+
+secrets:
+  openaiApiKey: ""               # K8s secret reference recommended in prod
+  jwtSecret: ""
+
+observability:
+  langfuse:
+    enabled: false
+    publicKey: ""
+    secretKey: ""
+    host: https://cloud.langfuse.com
+
+ingress_extras: {}
