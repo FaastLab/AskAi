@@ -1,0 +1,121 @@
+"""Pydantic Settings — single source of truth for all runtime config.
+
+Loaded from environment variables (and a `.env` file in dev). Every other
+package imports `get_settings()` rather than reading `os.environ` directly.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Provider literals — adding a new adapter means adding it here too.
+LLMProvider = Literal["openai", "azure", "anthropic", "bedrock", "ollama"]
+EmbeddingsProvider = Literal["openai", "azure", "cohere", "huggingface"]
+StorageProvider = Literal["minio", "s3", "azure-blob"]
+VectorStoreProvider = Literal["pgvector", "qdrant", "azure-ai-search", "pinecone"]
+RerankerProvider = Literal["cohere", "bge", "none"]
+AuthProvider = Literal["jwt", "oidc", "entra", "auth0"]
+ObservabilityProvider = Literal["langfuse", "langsmith", "none"]
+PdfParser = Literal["pymupdf", "unstructured", "docling"]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # ---- Application ----
+    app_env: Literal["dev", "staging", "prod"] = "dev"
+    app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    app_log_format: Literal["pretty", "json"] = "pretty"
+
+    # ---- Database ----
+    database_url: str = "postgresql+asyncpg://askai:askai@localhost:5432/askai"
+
+    # ---- Redis / queue ----
+    redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+
+    # ---- Storage ----
+    storage_provider: StorageProvider = "minio"
+    minio_endpoint: str = "http://localhost:9000"
+    minio_root_user: str = "minioadmin"
+    minio_root_password: str = "minioadmin"
+    minio_bucket: str = "askai"
+    minio_region: str = "us-east-1"
+
+    # ---- LLM ----
+    llm_provider: LLMProvider = "openai"
+    llm_model: str = "gpt-4o"
+    openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = None
+    azure_openai_api_version: str = "2024-08-01-preview"
+    azure_openai_deployment: str | None = None
+
+    # ---- Embeddings ----
+    embeddings_provider: EmbeddingsProvider = "openai"
+    embeddings_model: str = "text-embedding-3-large"
+    embeddings_dim: int = 3072
+
+    # ---- Reranker ----
+    reranker_provider: RerankerProvider = "cohere"
+    cohere_api_key: str | None = None
+    bge_reranker_model: str = "BAAI/bge-reranker-large"
+
+    # ---- Vector store ----
+    vector_store: VectorStoreProvider = "pgvector"
+    vector_index_type: Literal["hnsw", "ivfflat"] = "hnsw"
+    vector_hnsw_m: int = 16
+    vector_hnsw_ef_construction: int = 64
+
+    # ---- Auth ----
+    auth_provider: AuthProvider = "jwt"
+    jwt_secret: str = Field(default="change-me-in-prod-please-use-a-long-random-string")
+    jwt_algorithm: str = "HS256"
+    jwt_audience: str = "askai"
+    jwt_issuer: str = "faastlab-askai"
+
+    # ---- Tenancy ----
+    default_tenant: str = "demo-public"
+
+    # ---- API ----
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    api_cors_origins: str = "http://localhost:3000"
+    api_rate_limit_per_min: int = 60
+
+    # ---- Observability ----
+    observability_provider: ObservabilityProvider = "langfuse"
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+    sentry_dsn: str | None = None
+
+    # ---- Indexing ----
+    chunk_size_tokens: int = 700
+    chunk_overlap_tokens: int = 100
+    pdf_parser: PdfParser = "pymupdf"
+    parser_fallback: PdfParser = "unstructured"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return the singleton Settings instance.
+
+    Cached so config is parsed once per process. Tests can call
+    `get_settings.cache_clear()` to reload between cases.
+    """
+    return Settings()

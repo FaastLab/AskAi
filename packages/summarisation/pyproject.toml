@@ -1,0 +1,15 @@
+[project]
+name = "faastlab-askai-summarisation"
+version = "0.1.0"
+description = "Map-reduce summarisation, query-focused mode. Phase 4."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12,<3.13"
+dependencies = ["faastlab-askai-core"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/faastlab_askai_summarisation"]
