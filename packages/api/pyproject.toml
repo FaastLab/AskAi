@@ -3,7 +3,7 @@ name = "faastlab-askai-api"
 version = "0.1.0"
 description = "FastAPI surface (REST + SSE). Phase 6."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
 dependencies = ["faastlab-askai-core"]
 

@@ -3,7 +3,7 @@
 > **The open knowledge platform for humans and AI agents.**
 > Ingest documents once. Query via chat, REST, MCP, or SDK. Deploy fully open-source, on Azure, on AWS, on-prem, or hybrid.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![FaastLab.Ai](https://img.shields.io/badge/by-FaastLab.Ai-purple.svg)](https://faastlab.ai)
 
 ---
@@ -131,4 +131,4 @@ Active development. See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`CLAUDE.md`](C
 
 ## License
 
-MIT — free for any use, commercial or otherwise. Built and maintained by [FaastLab.Ai](https://faastlab.ai).
+Apache License 2.0 — free for any use, commercial or otherwise, with an explicit patent grant. Built and maintained by [FaastLab.Ai](https://faastlab.ai).

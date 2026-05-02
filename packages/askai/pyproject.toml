@@ -3,7 +3,7 @@ name = "faastlab-askai-askai"
 version = "0.1.0"
 description = "Ask AI: LangChain RAG chain + LangGraph multi-step. Phase 5."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
 dependencies = ["faastlab-askai-core"]
 

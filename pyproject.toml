@@ -3,7 +3,7 @@ name = "faastlab-askai"
 version = "0.1.0"
 description = "Open knowledge platform for humans and AI agents"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "FaastLab.Ai" }]
 requires-python = ">=3.12,<3.13"
 
