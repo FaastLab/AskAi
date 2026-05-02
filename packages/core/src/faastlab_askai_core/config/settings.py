@@ -73,8 +73,12 @@ class Settings(BaseSettings):
     minio_region: str = "us-east-1"
 
     # ---- LLM ----
+    # llm_model is the high-quality answer model (Ask AI, validator).
+    # summarisation_model defaults to a cheaper/higher-RPM tier so the
+    # demo-corpus auto-summarise pass doesn't burn through chat quotas.
     llm_provider: LLMProvider = "openai"
     llm_model: str = "gpt-4o"
+    summarisation_model: str = "gpt-4o-mini"
     openai_api_key: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None

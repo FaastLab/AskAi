@@ -5,14 +5,21 @@ from __future__ import annotations
 import json
 
 from faastlab_askai_core.adapters import LLMAdapter, LLMMessage
+from faastlab_askai_core.config import Settings, get_settings
 from faastlab_askai_core.factory import get_llm
 
 from faastlab_askai_summarisation.prompts import KEYPHRASE_PROMPT
 
 
 class KeyphraseExtractor:
-    def __init__(self, *, llm: LLMAdapter | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm: LLMAdapter | None = None,
+        settings: Settings | None = None,
+    ) -> None:
         self._llm = llm or get_llm()
+        self._settings = settings or get_settings()
 
     async def extract(self, summary: str, *, max_phrases: int = 12) -> list[str]:
         if not summary.strip():
@@ -20,6 +27,7 @@ class KeyphraseExtractor:
         prompt = KEYPHRASE_PROMPT.format(summary=summary)
         response = await self._llm.complete(
             [LLMMessage(role="user", content=prompt)],
+            model=self._settings.summarisation_model,
             temperature=0.0,
             max_tokens=300,
         )

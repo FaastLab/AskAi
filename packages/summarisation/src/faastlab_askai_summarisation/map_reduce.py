@@ -113,6 +113,7 @@ class MapReduceSummariser:
     async def _call(self, prompt: str) -> str:
         return await self._llm.complete(
             [LLMMessage(role="user", content=prompt)],
+            model=self._settings.summarisation_model,
             temperature=0.0,
             max_tokens=600,
         )
