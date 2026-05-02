@@ -147,7 +147,11 @@ async def main_async(*, tenant: str, summarise: bool, force: bool) -> int:
                 await _run_summarise(summariser, tenant_id, source["url"])
 
     print(f"\nDone. Ingested={ok}  Skipped={skipped}  Failed={failed}")
-    return 0 if failed == 0 else 1
+    # Only fail the run if EVERY source failed. Individual 404s are routine
+    # for regulator URLs (they keep moving) — a partial corpus is still useful.
+    if failed > 0 and ok == 0 and skipped == 0:
+        return 1
+    return 0
 
 
 async def _patch_document(

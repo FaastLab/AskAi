@@ -15,12 +15,6 @@ sources:
     url: "https://www.fca.org.uk/publication/finalised-guidance/fg22-5.pdf"
     effective_date: "2023-07-31"
 
-  - name: "FCA — PS21/3 Operational resilience"
-    doc_type: "policy_statement"
-    regulator: "FCA"
-    url: "https://www.fca.org.uk/publication/policy/ps21-3.pdf"
-    effective_date: "2022-03-31"
-
   - name: "FCA — PS22/10 Strengthening our financial promotion rules"
     doc_type: "policy_statement"
     regulator: "FCA"
