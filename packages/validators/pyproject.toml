@@ -1,11 +1,23 @@
 [project]
 name = "faastlab-askai-validators"
 version = "0.1.0"
-description = "Reference regulatory-validator agent. Phase 10."
+description = "Reference validator agent — regulatory report compliance check (Phase 10)."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
-dependencies = ["faastlab-askai-core"]
+
+dependencies = [
+  "faastlab-askai-core",
+  "faastlab-askai-search",
+  "faastlab-askai-askai",
+  "faastlab-askai-indexing",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
 
 [build-system]
 requires = ["hatchling"]
