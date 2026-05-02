@@ -80,12 +80,13 @@ check: lint typecheck test  ## Run lint + typecheck + test
 # ---------- Dev loop ----------
 .PHONY: dev
 dev: up migrate  ## Start infra and run API + worker (foreground)
-	@echo "Starting AskAi dev stack..."
-	@echo "  API:    http://localhost:$${API_PORT:-8000}"
-	@echo "  Docs:   http://localhost:$${API_PORT:-8000}/docs"
-	@echo "  UI:     http://localhost:3000  (run 'make ui' separately)"
-	@echo "  MinIO:  http://localhost:9001"
-	$(UV) run uvicorn faastlab_askai_api.main:app --reload --host 0.0.0.0 --port $${API_PORT:-8000}
+	@set -a && [ -f .env ] && . ./.env; set +a; \
+	  echo "Starting AskAi dev stack..."; \
+	  echo "  API:    http://localhost:$${API_PORT:-8000}"; \
+	  echo "  Docs:   http://localhost:$${API_PORT:-8000}/docs"; \
+	  echo "  UI:     http://localhost:3000  (run 'make ui' separately)"; \
+	  echo "  MinIO:  http://localhost:9001"; \
+	  $(UV) run uvicorn faastlab_askai_api.main:app --reload --host 0.0.0.0 --port $${API_PORT:-8000}
 
 .PHONY: worker
 worker:  ## Run Celery worker (in a second terminal)
