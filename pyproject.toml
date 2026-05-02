@@ -1,7 +1,7 @@
 [project]
-name = "faastlab-askai"
+name = "faastlab-askai-workspace"
 version = "0.1.0"
-description = "Open knowledge platform for humans and AI agents"
+description = "Open knowledge platform for humans and AI agents (workspace root — install per-package)"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "FaastLab.Ai" }]
