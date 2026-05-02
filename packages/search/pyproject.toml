@@ -13,14 +13,18 @@ dependencies = [
   "asyncpg>=0.30",
   "pgvector>=0.3",
   "tenacity>=9.0",
-  # Reranker — pick at runtime; keep the heavyweight one optional.
+  # Reranker stack. bge-reranker (BAAI, MIT) is the default OSS path —
+  # 100% open source, runs locally. sentence-transformers brings torch
+  # (~1GB on first install). Cohere is an optional managed alternative
+  # (small SDK). 'none' (pass-through) needs neither and ships free.
+  "sentence-transformers>=3.3",
+  "torch>=2.5",
   "cohere>=5.11",
-  # bge-reranker is enabled when EMBEDDINGS_RERANKER=bge — uses
-  # sentence-transformers + torch which are large, so they're
-  # extras the user opts in to.
 ]
 
 [project.optional-dependencies]
+# Kept for users who want to opt out of torch via --no-default-extras
+# style installs; the default is to include the OSS reranker.
 bge-reranker = [
   "sentence-transformers>=3.3",
   "torch>=2.5",

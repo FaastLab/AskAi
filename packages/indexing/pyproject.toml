@@ -6,6 +6,10 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
 
+# Default deps include the bge-reranker extras (sentence-transformers
+# + torch) so 'make install' brings up the 100% OSS path out of the box.
+# Lean installs that don't want torch can clear EMBEDDINGS_RERANKER and
+# install with --no-default-extras.
 dependencies = [
   "faastlab-askai-core",
   # Embeddings + LLM clients

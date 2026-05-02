@@ -90,10 +90,11 @@ class Settings(BaseSettings):
     embeddings_dim: int = 1536
 
     # ---- Reranker ----
-    # Default 'none' (pass-through) so the OSS path works without API
-    # keys or large local models. Set to 'cohere' (with COHERE_API_KEY)
-    # or 'bge' (with the [bge-reranker] extra installed) for quality.
-    reranker_provider: RerankerProvider = "none"
+    # Default 'bge' — BAAI/bge-reranker-large (MIT licence). 100% OSS,
+    # runs locally via sentence-transformers + torch (install with the
+    # [bge-reranker] extra). 'cohere' is a managed alternative. 'none'
+    # is pass-through for lean installs without torch.
+    reranker_provider: RerankerProvider = "bge"
     cohere_api_key: str | None = None
     bge_reranker_model: str = "BAAI/bge-reranker-large"
 
