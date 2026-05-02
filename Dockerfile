@@ -1,5 +1,9 @@
 # Production image — runs the FastAPI app or a Celery worker depending
 # on the command (see Helm chart).
+#
+# Layer order is tuned for incremental rebuilds: dependency manifests
+# go in first (rarely change → cached layer), then source goes in last.
+# A code-only change reuses the heavy `uv sync` + apt layers.
 
 FROM python:3.12-slim AS base
 
@@ -25,12 +29,34 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 
 WORKDIR /app
 
-# Copy lockfiles first for cache reuse.
+# ---- Layer 1: dependency manifests only (highly cacheable) ------------
+# Bring in the workspace pyproject.toml + every package's pyproject.toml +
+# the lockfile, but NO source. uv sync uses these to resolve and install
+# all deps. Source-code changes don't invalidate this layer, so a
+# typical rebuild after editing Python files reuses the cached venv.
 COPY pyproject.toml uv.lock* ./
-COPY packages packages
-COPY corpus corpus
+COPY packages/core/pyproject.toml             packages/core/pyproject.toml
+COPY packages/indexing/pyproject.toml         packages/indexing/pyproject.toml
+COPY packages/search/pyproject.toml           packages/search/pyproject.toml
+COPY packages/summarisation/pyproject.toml    packages/summarisation/pyproject.toml
+COPY packages/askai/pyproject.toml            packages/askai/pyproject.toml
+COPY packages/api/pyproject.toml              packages/api/pyproject.toml
+COPY packages/mcp/pyproject.toml              packages/mcp/pyproject.toml
+COPY packages/sdk/pyproject.toml              packages/sdk/pyproject.toml
+COPY packages/validators/pyproject.toml       packages/validators/pyproject.toml
+
+# Stub each package's src tree so the editable install resolves.
+RUN for pkg in core indexing search summarisation askai api mcp sdk validators; do \
+      mkdir -p packages/$pkg/src/faastlab_askai_$pkg && \
+      touch packages/$pkg/src/faastlab_askai_$pkg/__init__.py && \
+      touch packages/$pkg/README.md; \
+    done
 
 RUN uv sync --frozen --no-dev --all-packages
+
+# ---- Layer 2: actual source (changes often, fast layer) ---------------
+COPY packages packages
+COPY corpus corpus
 
 EXPOSE 8000
 
