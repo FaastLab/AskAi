@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:/root/.local/bin:${PATH}"
 
 # System libs PyMuPDF + Unstructured + tesseract (OCR fallback) need.
 RUN apt-get update && apt-get install -y --no-install-recommends \
