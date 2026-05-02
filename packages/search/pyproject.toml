@@ -1,11 +1,37 @@
 [project]
 name = "faastlab-askai-search"
 version = "0.1.0"
-description = "Hybrid retrieval: vector + keyword + RRF + reranker. Phase 3."
+description = "Hybrid retrieval + reranker for AskAi (Phase 3)."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
-dependencies = ["faastlab-askai-core"]
+
+dependencies = [
+  "faastlab-askai-core",
+  "faastlab-askai-indexing",      # for the embeddings adapter at query time
+  "sqlalchemy>=2.0",
+  "asyncpg>=0.30",
+  "pgvector>=0.3",
+  "tenacity>=9.0",
+  # Reranker — pick at runtime; keep the heavyweight one optional.
+  "cohere>=5.11",
+  # bge-reranker is enabled when EMBEDDINGS_RERANKER=bge — uses
+  # sentence-transformers + torch which are large, so they're
+  # extras the user opts in to.
+]
+
+[project.optional-dependencies]
+bge-reranker = [
+  "sentence-transformers>=3.3",
+  "torch>=2.5",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-mock>=3.14",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from typing import Any, Protocol
+
 from faastlab_askai_core.adapters import (
     EmbeddingsAdapter,
     LLMAdapter,
@@ -18,6 +20,10 @@ from faastlab_askai_core.adapters import (
 )
 from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.exceptions import AdapterNotFoundError
+
+
+class _RerankerLike(Protocol):
+    async def rerank(self, query: str, hits: list[Any], *, top_n: int | None = None) -> list[Any]: ...
 
 
 @lru_cache(maxsize=1)
@@ -81,9 +87,35 @@ def get_storage() -> StorageAdapter:
     )
 
 
+@lru_cache(maxsize=1)
+def get_reranker() -> _RerankerLike:
+    """Return the configured reranker (memoised). 'none' → pass-through."""
+    settings = get_settings()
+    provider = settings.reranker_provider
+
+    if provider == "none":
+        from faastlab_askai_search.rerankers import NoOpReranker
+
+        return NoOpReranker()
+    if provider == "cohere":
+        from faastlab_askai_search.rerankers import CohereReranker
+
+        return CohereReranker(settings)
+    if provider == "bge":
+        from faastlab_askai_search.rerankers.bge import BgeReranker
+
+        return BgeReranker(settings)
+
+    raise AdapterNotFoundError(
+        f"Reranker provider {provider!r} not yet wired up "
+        "(supported: none, cohere, bge)"
+    )
+
+
 def reset_factory_cache() -> None:
     """Clear all cached adapters. Tests use this between cases."""
     get_llm.cache_clear()
     get_embeddings.cache_clear()
     get_vector_store.cache_clear()
     get_storage.cache_clear()
+    get_reranker.cache_clear()

@@ -85,6 +85,10 @@ class Document(Base):
     superseded_by: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
     )
+    superseded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     keyphrases: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

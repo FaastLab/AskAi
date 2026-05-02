@@ -90,7 +90,10 @@ class Settings(BaseSettings):
     embeddings_dim: int = 1536
 
     # ---- Reranker ----
-    reranker_provider: RerankerProvider = "cohere"
+    # Default 'none' (pass-through) so the OSS path works without API
+    # keys or large local models. Set to 'cohere' (with COHERE_API_KEY)
+    # or 'bge' (with the [bge-reranker] extra installed) for quality.
+    reranker_provider: RerankerProvider = "none"
     cohere_api_key: str | None = None
     bge_reranker_model: str = "BAAI/bge-reranker-large"
 

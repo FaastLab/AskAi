@@ -94,6 +94,10 @@ worker:  ## Run Celery worker (in a second terminal)
 ingest:  ## Ingest local files: make ingest TENANT=demo-public SOURCE=./corpus/uk_finreg/_downloads
 	$(UV) run python -m faastlab_askai_indexing.cli --tenant $(TENANT) --path $(SOURCE)
 
+.PHONY: search
+search:  ## Search: make search TENANT=demo-public QUERY="capital requirements" [K=5]
+	$(UV) run python -m faastlab_askai_search.cli --tenant $(TENANT) --query $(QUERY) --k $${K:-5}
+
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
 	cd apps/web && npm install && npm run dev

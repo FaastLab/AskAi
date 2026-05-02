@@ -41,6 +41,7 @@ from faastlab_askai_indexing.chunkers.router import get_chunker
 from faastlab_askai_indexing.connectors.base import SourceDocument
 from faastlab_askai_indexing.hashing import content_hash
 from faastlab_askai_indexing.parsers.router import detect_content_type, get_parser
+from faastlab_askai_indexing.supersession import detect as detect_supersession
 
 if TYPE_CHECKING:
     from faastlab_askai_indexing.connectors.base import Connector
@@ -143,6 +144,22 @@ class IngestionPipeline:
                 parsed = parser.parse(source.data, filename=source.filename)
                 if doc.title in (None, "") and parsed.title:
                     doc.title = parsed.title
+
+                # Mark superseded regulatory documents so search can exclude
+                # them by default. Heuristics: text markers + URL pattern.
+                supersession = detect_supersession(parsed, source_uri=source.source_uri)
+                if supersession.is_superseded:
+                    doc.is_active = False
+                    doc.superseded_at = supersession.superseded_at
+                    log.info(
+                        "Marking %s as superseded (reason=%s)",
+                        source.source_uri,
+                        supersession.reason,
+                    )
+
+                # Carry parser metadata onto the document for later debugging.
+                if parsed.metadata:
+                    doc.metadata_ = {**(doc.metadata_ or {}), **parsed.metadata}
 
                 chunker = get_chunker(parsed)
                 chunks = chunker.chunk(parsed)
