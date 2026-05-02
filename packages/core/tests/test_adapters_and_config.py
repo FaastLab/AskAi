@@ -60,16 +60,40 @@ def test_exception_tree() -> None:
     assert issubclass(AdapterNotFoundError, ConfigurationError)
 
 
-@pytest.mark.parametrize(
-    "factory_fn",
-    [get_llm, get_embeddings, get_vector_store, get_storage],
-)
-def test_factory_raises_until_wired(factory_fn: object) -> None:
-    """Phase 1 ships Protocols only — concrete adapters land in later phases."""
+def test_llm_factory_raises_until_phase5() -> None:
+    """LLM adapter lands in Phase 5 (Ask AI). Until then, factory raises."""
     reset_factory_cache()
-    assert callable(factory_fn)
     with pytest.raises(AdapterNotFoundError):
-        factory_fn()  # type: ignore[operator]
+        get_llm()
+
+
+def test_embeddings_factory_returns_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 2 wires up OpenAI embeddings — factory returns an adapter."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+    reset_factory_cache()
+    # cache_clear on get_settings to pick up the env var
+    from faastlab_askai_core.config import get_settings as _gs
+
+    _gs.cache_clear()
+    adapter = get_embeddings()
+    assert hasattr(adapter, "embed")
+    assert hasattr(adapter, "embed_batch")
+
+
+def test_vector_store_factory_returns_adapter() -> None:
+    """Phase 2 wires up pgvector — factory returns an adapter (no DB needed)."""
+    reset_factory_cache()
+    adapter = get_vector_store()
+    assert hasattr(adapter, "query")
+    assert hasattr(adapter, "upsert")
+
+
+def test_storage_factory_returns_adapter() -> None:
+    """Phase 2 wires up MinIO — factory returns an adapter (no MinIO needed)."""
+    reset_factory_cache()
+    adapter = get_storage()
+    assert hasattr(adapter, "get")
+    assert hasattr(adapter, "put")
 
 
 def test_adapter_methods_are_async() -> None:
