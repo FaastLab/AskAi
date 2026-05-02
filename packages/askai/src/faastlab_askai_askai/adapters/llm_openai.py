@@ -106,7 +106,7 @@ class OpenAIChatLLM:
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         try:
-            stream = await self._client.chat.completions.create(
+            stream = await self._active_client().chat.completions.create(
                 model=model or self._model,
                 temperature=temperature,
                 max_tokens=max_tokens,
