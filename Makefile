@@ -24,8 +24,24 @@ env:  ## Copy .env.example to .env if missing
 
 # ---------- Infrastructure ----------
 .PHONY: up
-up: env  ## Start postgres, redis, minio
+up: env  ## Start postgres, redis, minio (infra only)
 	docker compose up -d
+
+.PHONY: up-app
+up-app: env  ## Build + start full stack as background services (api + worker + web)
+	docker compose --profile app up -d --build
+	@set -a && [ -f .env ] && . ./.env; set +a; \
+	  echo "API:  http://localhost:$${API_PORT:-8000}"; \
+	  echo "Web:  http://localhost:$${WEB_PORT:-3000}"; \
+	  echo "Docs: http://localhost:$${API_PORT:-8000}/docs"
+
+.PHONY: down-app
+down-app:  ## Stop the application containers (keeps infra up)
+	docker compose --profile app down
+
+.PHONY: ps
+ps:  ## Show AskAi containers
+	docker compose --profile app ps
 
 .PHONY: down
 down:  ## Stop all containers

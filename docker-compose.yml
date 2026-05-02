@@ -64,6 +64,81 @@ services:
       exit 0
       "
 
+  # ---- Application services (build from local Dockerfile) ----
+  # Behind the 'app' profile so the default `make up` only starts infra
+  # for local dev. Use `make up-app` (or `docker compose --profile app up -d`)
+  # when you want the API + worker + web running in the background as
+  # restartable containers — the right mode for an always-on demo VM.
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: faastlab/askai:local
+    container_name: askai-api
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql+asyncpg://askai:askai@postgres:5432/askai}
+      REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
+      MINIO_ENDPOINT: http://minio:9000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    command:
+      - uvicorn
+      - faastlab_askai_api.main:app
+      - --host=0.0.0.0
+      - --port=8000
+    restart: unless-stopped
+
+  worker:
+    image: faastlab/askai:local
+    container_name: askai-worker
+    profiles: ["app"]
+    depends_on:
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql+asyncpg://askai:askai@postgres:5432/askai}
+      REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
+      MINIO_ENDPOINT: http://minio:9000
+    command:
+      - celery
+      - -A
+      - faastlab_askai_indexing.celery_app:celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: faastlab/askai-web:local
+    container_name: askai-web
+    profiles: ["app"]
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
