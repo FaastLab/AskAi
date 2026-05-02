@@ -91,8 +91,8 @@ worker:  ## Run Celery worker (in a second terminal)
 	$(UV) run celery -A faastlab_askai_indexing.celery_app:celery_app worker --loglevel=info
 
 .PHONY: ingest
-ingest:  ## Ingest local files: make ingest TENANT=demo-public PATH=./corpus/uk_finreg/_downloads
-	$(UV) run python -m faastlab_askai_indexing.cli --tenant $(TENANT) --path $(PATH)
+ingest:  ## Ingest local files: make ingest TENANT=demo-public SOURCE=./corpus/uk_finreg/_downloads
+	$(UV) run python -m faastlab_askai_indexing.cli --tenant $(TENANT) --path $(SOURCE)
 
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
