@@ -16,6 +16,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from faastlab_askai_core.adapters import VectorHit
@@ -98,7 +99,10 @@ class PgVectorStore:
              WHERE id = :chunk_id
                AND tenant_id = :tenant_id
             """
-        ).bindparams(bindparam("embedding", type_=Vector(self._dim)))
+        ).bindparams(
+            bindparam("embedding", type_=Vector(self._dim)),
+            bindparam("metadata", type_=JSONB),
+        )
 
         async with self._engine.begin() as conn:
             for it in items:
