@@ -24,7 +24,9 @@ from faastlab_askai_summarisation.prompts import (
 
 DEFAULT_SLICE_TOKENS = 2500
 DEFAULT_OVERLAP_TOKENS = 100
-MAP_PARALLELISM = 5
+# Conservative default to stay inside OpenAI tier-1 rate limits. Override
+# via the constructor (parallelism=…) when the deployment has headroom.
+MAP_PARALLELISM = 2
 
 
 @dataclass(slots=True)
