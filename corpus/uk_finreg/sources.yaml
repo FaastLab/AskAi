@@ -1,0 +1,37 @@
+# UK FinReg demo corpus — Bank of England, PRA, FCA documents
+# All published under the Open Government Licence v3.0 (with attribution).
+#
+# Curated to be small, public, currently in force (we don't ingest known
+# superseded versions on purpose — they'd just be marked is_active=False).
+# Tweak this list to match what you want indexed for `make demo-corpus`.
+
+sources:
+  - name: "PRA — SS17/13 Credit risk mitigation"
+    doc_type: "supervisory_statement"
+    regulator: "PRA"
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2013/ss1713update.pdf"
+    effective_date: "2024-01-01"
+
+  - name: "PRA — SS6/14 Implementing CRD IV: capital buffers"
+    doc_type: "supervisory_statement"
+    regulator: "PRA"
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2014/ss614update.pdf"
+    effective_date: "2024-04-01"
+
+  - name: "PRA — SS31/15 The Internal Capital Adequacy Assessment Process (ICAAP)"
+    doc_type: "supervisory_statement"
+    regulator: "PRA"
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2015/ss3115update.pdf"
+    effective_date: "2024-04-01"
+
+  - name: "FCA — Consumer Duty (FG22/5)"
+    doc_type: "guidance"
+    regulator: "FCA"
+    url: "https://www.fca.org.uk/publication/finalised-guidance/fg22-5.pdf"
+    effective_date: "2023-07-31"
+
+  - name: "FCA — PS21/3 Operational resilience"
+    doc_type: "policy_statement"
+    regulator: "FCA"
+    url: "https://www.fca.org.uk/publication/policy/ps21-3.pdf"
+    effective_date: "2022-03-31"

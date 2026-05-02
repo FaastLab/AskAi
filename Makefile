@@ -124,7 +124,7 @@ ui:  ## Run the Next.js chat UI (in a third terminal)
 # ---------- Demo ----------
 .PHONY: demo-corpus
 demo-corpus:  ## Ingest the UK FinReg demo corpus into demo-public tenant
-	$(UV) run python -m corpus.uk_finreg.loader
+	$(UV) run python -m corpus.uk_finreg.loader $${NO_SUMMARISE:+--no-summarise}
 
 # ---------- Cleanup ----------
 .PHONY: clean
