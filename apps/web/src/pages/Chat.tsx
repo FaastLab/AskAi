@@ -1,18 +1,46 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Sidebar } from "../components/Sidebar";
 import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
-import { streamAsk, type Citation } from "../lib/api";
+import { SettingsModal } from "../components/SettingsModal";
+import { getConfig, streamAsk, type Citation, type PublicConfig } from "../lib/api";
+import { loadSettings } from "../lib/settings";
 
 export function ChatPage() {
   const { sessionId: sessionParam } = useParams();
   const [sessionId, setSessionId] = useState<string | null>(sessionParam ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [config, setConfig] = useState<PublicConfig | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean>(!!loadSettings().openaiApiKey);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Pull server config; if it requires BYOK and the user has no key,
+  // open the settings modal automatically on first load.
+  useEffect(() => {
+    getConfig().then((c) => {
+      setConfig(c);
+      const stored = !!loadSettings().openaiApiKey;
+      setHasKey(stored);
+      if (c?.require_byok && !stored) setShowSettings(true);
+    });
+  }, []);
+
+  // Re-read storage when the modal closes (in case the user saved a key).
+  const closeSettings = () => {
+    setShowSettings(false);
+    setHasKey(!!loadSettings().openaiApiKey);
+  };
+
+  const blockedByByok = !!config?.require_byok && !hasKey;
+
   async function ask(question: string) {
+    if (blockedByByok) {
+      setShowSettings(true);
+      return;
+    }
     setBusy(true);
     const userMsg: ChatMessage = { role: "user", content: question };
     const assistantMsg: ChatMessage = { role: "assistant", content: "", pending: true };
@@ -61,7 +89,8 @@ export function ChatPage() {
         const next = [...prev];
         next[next.length - 1] = {
           ...next[next.length - 1],
-          content: "Error reaching the API.",
+          content:
+            "Error reaching the API. If this deployment requires your own OpenAI key, set it via the gear icon in the top right.",
           pending: false,
         };
         return next;
@@ -75,12 +104,42 @@ export function ChatPage() {
     <div className="flex h-dvh">
       <Sidebar />
       <main className="flex-1 flex flex-col">
-        <header className="border-b border-slate-200 bg-white px-6 py-3">
-          <h1 className="text-lg font-semibold">FaastLab AskAi</h1>
-          <p className="text-xs text-ink-500">
-            Tenant: demo-public · ask anything about indexed UK financial regulation
-          </p>
+        <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-semibold">FaastLab AskAi</h1>
+            <p className="text-xs text-ink-500">
+              Tenant: {config?.default_tenant ?? "demo-public"} · model: {config?.llm_model ?? "—"}
+              {hasKey ? " · using your key" : config?.require_byok ? " · BYOK required" : ""}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="rounded p-2 text-ink-700 hover:bg-slate-100"
+            aria-label="Settings"
+            title="Settings"
+          >
+            {/* simple gear glyph — no extra icon dep */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+            </svg>
+          </button>
         </header>
+
+        {blockedByByok && (
+          <div className="bg-amber-50 border-b border-amber-300 px-6 py-3 text-sm text-amber-900 flex items-center gap-3">
+            <span className="flex-1">
+              This demo runs on your own OpenAI key. Add it via the gear icon to start asking.
+            </span>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="rounded bg-amber-900 px-3 py-1 text-xs text-white hover:bg-amber-800"
+            >
+              Add key
+            </button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div className="max-w-3xl mx-auto w-full space-y-4">
             {messages.length === 0 && (
@@ -95,6 +154,12 @@ export function ChatPage() {
         </div>
         <Composer onSubmit={ask} disabled={busy} />
       </main>
+
+      <SettingsModal
+        open={showSettings}
+        onClose={closeSettings}
+        requireByok={!!config?.require_byok}
+      />
     </div>
   );
 }

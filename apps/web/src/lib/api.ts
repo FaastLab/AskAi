@@ -1,5 +1,6 @@
 /** Tiny client wrapper over /v1/ — uses Vite proxy in dev. */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { authHeaders, loadSettings } from "./settings";
 
 export type Citation = {
   chunk_id: string;
@@ -14,6 +15,27 @@ export type AskEvent =
   | { event: "retrieve"; confidence: number; chunks: number }
   | { event: "token"; text: string }
   | { event: "done"; session_id: string; citations: Citation[] };
+
+export type PublicConfig = {
+  name: string;
+  version: string;
+  default_tenant: string;
+  llm_model: string;
+  summarisation_model: string;
+  embeddings_model: string;
+  require_byok: boolean;
+  reranker_provider: string;
+};
+
+export async function getConfig(): Promise<PublicConfig | null> {
+  try {
+    const r = await fetch("/v1/config");
+    if (!r.ok) return null;
+    return (await r.json()) as PublicConfig;
+  } catch {
+    return null;
+  }
+}
 
 export async function* streamAsk(
   question: string,
@@ -32,7 +54,7 @@ export async function* streamAsk(
 
   fetchEventSource("/v1/ask", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(loadSettings()) },
     signal: opts?.signal,
     body: JSON.stringify({
       query: question,
@@ -79,7 +101,7 @@ export async function* streamAsk(
 }
 
 export async function listSessions() {
-  const r = await fetch("/v1/sessions");
+  const r = await fetch("/v1/sessions", { headers: authHeaders(loadSettings()) });
   if (!r.ok) return [];
   return (await r.json()) as Array<{ id: string; title: string | null }>;
 }

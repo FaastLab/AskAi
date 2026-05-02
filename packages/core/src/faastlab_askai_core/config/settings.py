@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     # ---- Tenancy ----
     default_tenant: str = "demo-public"
 
+    # ---- BYOK (bring your own LLM key) ----
+    # When True, /v1/ask and /v1/search require an X-OpenAI-API-Key header
+    # — the server's OPENAI_API_KEY is never used for those calls. Use this
+    # for public live demos so visitors burn their own quota.
+    require_byok: bool = False
+
     # ---- API ----
     api_host: str = "0.0.0.0"
     api_port: int = 8000

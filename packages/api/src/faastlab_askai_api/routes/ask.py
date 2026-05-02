@@ -8,15 +8,33 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from faastlab_askai_askai.service import AskAiService
 from faastlab_askai_core.adapters import Principal
+from faastlab_askai_core.byok import get_request_secrets
+from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.schemas.search import AskRequest, AskResponse
 from faastlab_askai_search.filters import SearchFilters
 
 from faastlab_askai_api.middleware.principal import get_principal
+
+
+def _require_byok_if_configured() -> None:
+    settings = get_settings()
+    if not settings.require_byok:
+        return
+    secrets = get_request_secrets()
+    if not secrets or not secrets.openai_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This deployment requires a bring-your-own OpenAI key. "
+                "Send it as the X-OpenAI-API-Key header."
+            ),
+        )
+
 
 router = APIRouter(tags=["ask"])
 _service = AskAiService()
@@ -28,6 +46,7 @@ async def ask(
     request: Request,
     principal: Principal = Depends(get_principal),
 ):
+    _require_byok_if_configured()
     filters = SearchFilters(
         only_active=not body.filters.get("include_superseded", False)
     )

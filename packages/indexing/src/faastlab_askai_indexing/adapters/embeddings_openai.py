@@ -22,6 +22,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from faastlab_askai_core.byok import get_request_secrets
 from faastlab_askai_core.config import Settings, get_settings
 from faastlab_askai_core.exceptions import EmbeddingError
 
@@ -43,26 +44,42 @@ class OpenAIEmbeddings:
         client: _AsyncOpenAIType | None = None,
     ) -> None:
         self._settings = settings or get_settings()
-        self._client = client or self._build_client()
+        # Lazy default client — built on first non-BYOK call. Lets the
+        # server boot in pure-BYOK mode without OPENAI_API_KEY in env.
+        self._default_client: _AsyncOpenAIType | None = client
         self._dim = self._settings.embeddings_dim
         self._model = self._settings.embeddings_model
 
-    def _build_client(self) -> _AsyncOpenAIType:
+    def _build_client(self, *, api_key: str | None) -> _AsyncOpenAIType:
         s = self._settings
         if s.embeddings_provider == "azure":
-            if not (s.azure_openai_endpoint and s.azure_openai_api_key):
+            if not (s.azure_openai_endpoint and (api_key or s.azure_openai_api_key)):
                 raise EmbeddingError(
-                    "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set "
-                    "when EMBEDDINGS_PROVIDER=azure"
+                    "AZURE_OPENAI_ENDPOINT and a key must be set "
+                    "(via Settings or X-OpenAI-API-Key header)"
                 )
             return AsyncAzureOpenAI(
                 azure_endpoint=s.azure_openai_endpoint,
-                api_key=s.azure_openai_api_key,
+                api_key=api_key or s.azure_openai_api_key,
                 api_version=s.azure_openai_api_version,
             )
-        if not s.openai_api_key:
-            raise EmbeddingError("OPENAI_API_KEY must be set")
-        return AsyncOpenAI(api_key=s.openai_api_key)
+        if not api_key:
+            raise EmbeddingError(
+                "No OpenAI API key — set OPENAI_API_KEY or send "
+                "X-OpenAI-API-Key header (BYOK)."
+            )
+        return AsyncOpenAI(api_key=api_key)
+
+    def _active_client(self) -> _AsyncOpenAIType:
+        """Return a client honouring per-request BYOK if set, else the default."""
+        secrets = get_request_secrets()
+        if secrets and secrets.openai_api_key:
+            return self._build_client(api_key=secrets.openai_api_key)
+        if self._default_client is None:
+            self._default_client = self._build_client(
+                api_key=self._settings.openai_api_key
+            )
+        return self._default_client
 
     # ---- EmbeddingsAdapter protocol ----------------------------------------
 
@@ -89,7 +106,7 @@ class OpenAIEmbeddings:
             kwargs: dict[str, object] = {"model": self._model, "input": texts}
             if self._model.startswith("text-embedding-3"):
                 kwargs["dimensions"] = self._dim
-            response = await self._client.embeddings.create(**kwargs)  # type: ignore[arg-type]
+            response = await self._active_client().embeddings.create(**kwargs)  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 — translate to our hierarchy
             raise EmbeddingError(f"OpenAI embeddings call failed: {exc}") from exc
 

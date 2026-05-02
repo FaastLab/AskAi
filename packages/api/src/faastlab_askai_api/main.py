@@ -22,11 +22,13 @@ from slowapi.middleware import SlowAPIMiddleware
 from faastlab_askai_core.config import get_settings
 
 from faastlab_askai_api.middleware.audit import AuditMiddleware
+from faastlab_askai_api.middleware.byok import BYOKMiddleware
 from faastlab_askai_api.middleware.principal import (
     rate_limit_key,
 )
 from faastlab_askai_api.routes import (
     ask,
+    config as config_route,
     documents,
     health,
     ingest,
@@ -65,11 +67,14 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-OpenAI-API-Key", "X-Cohere-API-Key"],
     )
+    app.add_middleware(BYOKMiddleware)
     app.add_middleware(AuditMiddleware)
 
     # ---- Routes ----
     app.include_router(health.router)
+    app.include_router(config_route.router, prefix="/v1")
     app.include_router(tenants.router, prefix="/v1")
     app.include_router(documents.router, prefix="/v1")
     app.include_router(ingest.router, prefix="/v1")
