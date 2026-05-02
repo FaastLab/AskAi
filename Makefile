@@ -122,7 +122,7 @@ validate:  ## Validate a report: make validate TENANT=… REPORT=./report.pdf
 	$(UV) run python -m faastlab_askai_validators.cli --tenant $(TENANT) --report $(REPORT)
 
 .PHONY: ui
-ui:  ## Run the Next.js chat UI (in a third terminal)
+ui:  ## Run the Vite + React chat UI on :3000 (in a third terminal)
 	cd apps/web && npm install && npm run dev
 
 # ---------- Demo ----------
