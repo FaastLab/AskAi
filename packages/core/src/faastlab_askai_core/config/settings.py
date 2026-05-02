@@ -82,9 +82,12 @@ class Settings(BaseSettings):
     azure_openai_deployment: str | None = None
 
     # ---- Embeddings ----
+    # NB: pgvector's HNSW index caps at 2000 dimensions, so the default is
+    # 1536 (text-embedding-3-small). To use text-embedding-3-large, reduce
+    # via the OpenAI `dimensions` parameter to ≤2000 (Matryoshka).
     embeddings_provider: EmbeddingsProvider = "openai"
-    embeddings_model: str = "text-embedding-3-large"
-    embeddings_dim: int = 3072
+    embeddings_model: str = "text-embedding-3-small"
+    embeddings_dim: int = 1536
 
     # ---- Reranker ----
     reranker_provider: RerankerProvider = "cohere"

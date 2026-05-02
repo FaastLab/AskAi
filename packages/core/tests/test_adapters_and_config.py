@@ -27,7 +27,7 @@ def test_settings_defaults_are_loadable() -> None:
     s = Settings()
     assert s.app_env == "dev"
     assert s.llm_provider == "openai"
-    assert s.embeddings_dim == 3072
+    assert s.embeddings_dim == 1536
     assert s.cors_origins_list == ["http://localhost:3000"]
 
 
