@@ -1,11 +1,25 @@
 [project]
 name = "faastlab-askai-mcp"
 version = "0.1.0"
-description = "MCP server exposing AskAi tools. Phase 7."
+description = "MCP server exposing AskAi tools to agents (Phase 7)."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
-dependencies = ["faastlab-askai-core"]
+
+dependencies = [
+  "faastlab-askai-core",
+  "faastlab-askai-search",
+  "faastlab-askai-askai",
+  "faastlab-askai-summarisation",
+  "faastlab-askai-indexing",
+  "mcp>=1.1",                # official Anthropic Python MCP SDK
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -113,6 +113,10 @@ summarise:  ## Summarise tenant docs: make summarise TENANT=demo-public [DOCUMEN
 	$(UV) run python -m faastlab_askai_summarisation.cli --tenant $(TENANT) \
 	  $${DOCUMENT:+--document $$DOCUMENT} $${FORCE:+--force}
 
+.PHONY: mcp
+mcp:  ## Run the MCP server over stdio: make mcp TENANT=demo-public
+	ASKAI_TENANT=$(TENANT) $(UV) run python -m faastlab_askai_mcp.server
+
 .PHONY: ui
 ui:  ## Run the Next.js chat UI (in a third terminal)
 	cd apps/web && npm install && npm run dev
