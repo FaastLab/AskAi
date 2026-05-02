@@ -1,0 +1,44 @@
+# Pre-commit hooks — run automatically on `git commit`.
+# Install once per clone:
+#   uv sync --all-packages --dev
+#   uv run pre-commit install
+# Then every commit will be linted + secret-scanned before it's accepted.
+
+default_language_version:
+  python: python3.12
+
+repos:
+  # ---- General hygiene ----
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # ---- Secret scanning (the headline reason this file exists) ----
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: |
+          (?x)^(
+            .*\.lock$|
+            uv\.lock|
+            package-lock\.json|
+            apps/web/package-lock\.json|
+            \.secrets\.baseline
+          )$
+
+  # ---- Python lint + format ----
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format

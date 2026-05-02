@@ -19,6 +19,8 @@ dev = [
   "pytest-cov>=5.0",
   "httpx>=0.27",
   "types-redis",
+  "pre-commit>=4.0",
+  "detect-secrets>=1.5",
 ]
 
 [tool.uv.workspace]
