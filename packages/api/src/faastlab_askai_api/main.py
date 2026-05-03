@@ -10,6 +10,8 @@ and middleware under `faastlab_askai_api.middleware`. Endpoints follow
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -20,6 +22,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from faastlab_askai_core.config import get_settings
+from faastlab_askai_core.factory import get_reranker
 
 from faastlab_askai_api.middleware.audit import AuditMiddleware
 from faastlab_askai_api.middleware.byok import BYOKMiddleware
@@ -37,11 +40,28 @@ from faastlab_askai_api.routes import (
     tenants,
 )
 
+log = logging.getLogger(__name__)
+
+
+async def _prewarm_reranker() -> None:
+    """Load bge-reranker weights at startup so first /v1/ask isn't slow."""
+    try:
+        reranker = get_reranker()
+        if hasattr(reranker, "_ensure_model"):
+            log.info("Pre-warming reranker model …")
+            await asyncio.to_thread(reranker._ensure_model)  # noqa: SLF001
+            log.info("Reranker pre-warm complete")
+    except Exception as exc:  # noqa: BLE001
+        # Non-fatal: first request will pay the warm-up cost instead.
+        log.warning("Reranker pre-warm skipped: %s", exc)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Pre-warm the LLM/embeddings adapters so the first request isn't
-    # slow with model downloads (especially bge-reranker).
+    # Pre-warm in the background so the API is ready to serve health
+    # checks immediately; first /v1/ask waits at most for the reranker
+    # rather than always paying ~10s on cold start.
+    asyncio.create_task(_prewarm_reranker())
     yield
 
 

@@ -22,8 +22,15 @@ def get_engine() -> AsyncEngine:
         settings.database_url,
         echo=settings.app_env == "dev" and settings.app_log_level == "DEBUG",
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
+        # Generous pool: audit middleware + sessions polling + retrieval +
+        # memory writes can stack up under concurrent /v1/ask streams. A
+        # connection-pool starve was the suspected cause of 10-15 min
+        # browser stalls. Each connection is cheap; Postgres is fine with
+        # 50+ idle connections.
+        pool_size=20,
+        max_overflow=40,
+        pool_timeout=30,
+        pool_recycle=1800,
     )
 
 

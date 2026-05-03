@@ -6,6 +6,7 @@ Orchestrates: load history → retrieve → prompt → LLM → parse citations
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +22,8 @@ from faastlab_askai_search.service import SearchOutcome, SearchService
 from faastlab_askai_askai.chains import RagChain
 from faastlab_askai_askai.citations import extract_citations
 from faastlab_askai_askai.memory import SessionMemory
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -110,11 +113,22 @@ class AskAiService:
             {"event": "token", "text": "Firms must…"}
             {"event": "done", "citations": [...], "session_id": "…"}
         """
+        t0 = perf_counter()
         session_uuid, history = await self._memory.load(
             tenant_id=tenant_id, session_id=session_id
         )
+        t_mem = perf_counter()
 
         retrieval = await self._do_retrieval(tenant_id, question, filters)
+        t_retr = perf_counter()
+        log.info(
+            "stream_ask: memory=%.0fms retrieve=%.0fms hits=%d conf=%.3f",
+            (t_mem - t0) * 1000,
+            (t_retr - t_mem) * 1000,
+            len(retrieval.hits),
+            retrieval.confidence,
+        )
+
         yield {
             "event": "retrieve",
             "confidence": retrieval.confidence,
@@ -122,14 +136,28 @@ class AskAiService:
         }
 
         collected: list[str] = []
+        first_token_at: float | None = None
         async for token in self._chain.stream_answer(
             question, retrieval.hits, history=history
         ):
+            if first_token_at is None:
+                first_token_at = perf_counter()
+                log.info(
+                    "stream_ask: first_token_at=%.0fms (after retrieve)",
+                    (first_token_at - t_retr) * 1000,
+                )
             collected.append(token)
             yield {"event": "token", "text": token}
 
+        t_done = perf_counter()
         full_answer = "".join(collected)
         citations = extract_citations(full_answer, retrieval.hits)
+        log.info(
+            "stream_ask: total=%.0fms tokens=%d chars=%d",
+            (t_done - t0) * 1000,
+            len(collected),
+            len(full_answer),
+        )
         await self._memory.append(
             tenant_id=tenant_id,
             session_id=session_uuid,

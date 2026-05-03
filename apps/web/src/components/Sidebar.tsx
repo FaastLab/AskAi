@@ -1,14 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { listSessions } from "../lib/api";
+
+const MIN_REFETCH_INTERVAL_MS = 5000;
 
 export function Sidebar() {
   const [sessions, setSessions] = useState<{ id: string; title: string | null }[]>([]);
   const navigate = useNavigate();
   const { sessionId } = useParams();
+  const lastFetchRef = useRef<number>(0);
+  const inFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
-    listSessions().then(setSessions);
+    // Throttle: don't refetch if we just did within MIN_REFETCH_INTERVAL_MS,
+    // and never run two requests in parallel. Avoids an audit-log /
+    // connection-pool storm when React re-runs the effect.
+    const now = Date.now();
+    if (inFlightRef.current) return;
+    if (now - lastFetchRef.current < MIN_REFETCH_INTERVAL_MS) return;
+
+    inFlightRef.current = true;
+    lastFetchRef.current = now;
+    listSessions()
+      .then(setSessions)
+      .finally(() => {
+        inFlightRef.current = false;
+      });
   }, [sessionId]);
 
   return (
