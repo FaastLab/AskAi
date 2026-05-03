@@ -12,8 +12,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+# Make our INFO-level logs visible. uvicorn configures the 'uvicorn' loggers
+# but leaves application loggers at WARNING, which silently swallows the
+# timing breadcrumbs in service.py / main.py prewarm. Force the root logger
+# to INFO so 'faastlab_askai_*' INFO lines hit stdout.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
