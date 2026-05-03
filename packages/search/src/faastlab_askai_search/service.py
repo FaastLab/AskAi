@@ -48,7 +48,10 @@ class SearchService:
         retriever: Retriever | None = None,
         reranker: Reranker | None = None,
         confidence_fn: ConfidenceFn = _default_confidence,
-        retrieve_k: int = 25,
+        # 12 candidates × bge-reranker-base on CPU ≈ 3-4s per query
+        # (vs 28s with 25 candidates × bge-reranker-large). Bump for
+        # GPU deployments via the constructor.
+        retrieve_k: int = 12,
     ) -> None:
         self._retriever = retriever or HybridRetriever()
         self._reranker = reranker or get_reranker()  # type: ignore[assignment]

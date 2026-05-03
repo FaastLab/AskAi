@@ -100,7 +100,10 @@ class Settings(BaseSettings):
     # is pass-through for lean installs without torch.
     reranker_provider: RerankerProvider = "bge"
     cohere_api_key: str | None = None
-    bge_reranker_model: str = "BAAI/bge-reranker-large"
+    # bge-reranker-base is ~5x faster than -large on CPU with comparable
+    # quality on regulator Q&A. Switch to -large only if you've got a GPU
+    # or the latency budget. -v2-m3 is best quality but heavier.
+    bge_reranker_model: str = "BAAI/bge-reranker-base"
 
     # ---- Vector store ----
     vector_store: VectorStoreProvider = "pgvector"

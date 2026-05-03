@@ -44,8 +44,9 @@ class HybridRetriever:
         filters: SearchFilters | None = None,
     ) -> list[RetrievedChunk]:
         # Pull more from each retriever than we'll return; fusion will
-        # promote chunks that score in both lists.
-        per_retriever_k = max(k * 3, 20)
+        # promote chunks that score in both lists. Bumped down so the
+        # downstream reranker isn't fed 75+ candidates on CPU.
+        per_retriever_k = max(k * 2, 12)
 
         vector_hits, keyword_hits = await asyncio.gather(
             self._vector.retrieve(
