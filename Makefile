@@ -138,6 +138,27 @@ mcp:  ## Run the MCP server over stdio: make mcp TENANT=demo-public
 validate:  ## Validate a report: make validate TENANT=… REPORT=./report.pdf
 	$(UV) run python -m faastlab_askai_validators.cli --tenant $(TENANT) --report $(REPORT)
 
+# ---------- Reranker fine-tuning (MSc track) ----------
+.PHONY: rerank-triplets
+rerank-triplets:  ## Generate triplets: make rerank-triplets TENANT=demo-public [SAMPLE=500]
+	$(UV) run python -m faastlab_askai_search.training.triplets \
+	  --tenant $(TENANT) --sample-size $${SAMPLE:-500} \
+	  --output $${OUT:-training/triplets.jsonl}
+
+.PHONY: rerank-train
+rerank-train:  ## Fine-tune cross-encoder: make rerank-train [OUT=training/finreg-reranker-v1]
+	$(UV) run python -m faastlab_askai_search.training.train \
+	  --triplets $${TRIPLETS:-training/triplets.jsonl} \
+	  --output-dir $${OUT:-training/finreg-reranker-v1} \
+	  --epochs $${EPOCHS:-3}
+
+.PHONY: rerank-eval
+rerank-eval:  ## Compare rerankers: make rerank-eval TENANT=demo-public [RERANKERS="none bge ..."]
+	$(UV) run python -m faastlab_askai_search.training.evaluate \
+	  --tenant $(TENANT) \
+	  --queries $${QUERIES:-training/eval_queries.jsonl} \
+	  --rerankers $${RERANKERS:-none bge}
+
 .PHONY: ui
 ui:  ## Run the Vite + React chat UI on :3000 (in a third terminal)
 	cd apps/web && npm install && npm run dev
