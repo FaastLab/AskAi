@@ -34,7 +34,7 @@ def _find_env_file() -> Path | None:
 
 # Provider literals — adding a new adapter means adding it here too.
 LLMProvider = Literal["openai", "azure", "anthropic", "bedrock", "ollama"]
-EmbeddingsProvider = Literal["openai", "azure", "cohere", "huggingface"]
+EmbeddingsProvider = Literal["openai", "azure", "cohere", "huggingface", "ollama"]
 StorageProvider = Literal["minio", "s3", "azure-blob"]
 VectorStoreProvider = Literal["pgvector", "qdrant", "azure-ai-search", "pinecone"]
 RerankerProvider = Literal["cohere", "bge", "none"]

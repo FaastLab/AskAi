@@ -60,9 +60,14 @@ def get_embeddings() -> EmbeddingsAdapter:
 
         return OpenAIEmbeddings(settings)
 
+    if provider == "ollama":
+        from faastlab_askai_indexing.adapters import OllamaEmbeddings
+
+        return OllamaEmbeddings(settings)
+
     raise AdapterNotFoundError(
         f"Embeddings provider {provider!r} not yet wired up "
-        "(supported: openai, azure)"
+        "(supported: openai, azure, ollama)"
     )
 
 

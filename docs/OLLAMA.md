@@ -37,13 +37,16 @@ curl http://localhost:11434/api/tags
 In `.env` on the AskAi VM:
 
 ```env
+# Hybrid mode (LLM local, embeddings on OpenAI — cheapest unless you
+# embed millions of docs):
 LLM_PROVIDER=ollama
 LLM_MODEL=qwen2.5:32b
 OLLAMA_BASE_URL=http://<gpu-pod-ip>:11434
 
-# Embeddings + summarisation can stay on OpenAI (cheap), or you can
-# also run an embedding model locally:
-# EMBEDDINGS_PROVIDER=ollama   # (not yet implemented — Phase 5.x)
+# Or fully OpenAI-free (single-pod product mode, see below):
+# EMBEDDINGS_PROVIDER=ollama
+# EMBEDDINGS_MODEL=bge-m3
+# EMBEDDINGS_DIM=1024
 ```
 
 Restart the api container:
@@ -65,6 +68,52 @@ For the fintech sales pitch:
 - **GPT-4o**: best quality, $$$ per call, data leaves.
 - **Qwen 2.5 32B local**: ~90% quality, $0 per call after hardware,
   data never leaves. Better fit for FCA / PRA-regulated firms.
+
+## Single-pod product mode (zero per-token cost, fixed monthly)
+
+Drop ALL OpenAI calls and run the entire platform on one GPU pod.
+Pitch to fintech clients: *"flat £100/mo, your data never leaves
+your tenant, no third-party LLM/embeddings vendor."*
+
+```env
+# .env on the AskAi VM
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5:32b
+SUMMARISATION_MODEL=qwen2.5:32b   # also Ollama, no API key needed
+OLLAMA_BASE_URL=http://<gpu-pod>:11434
+
+EMBEDDINGS_PROVIDER=ollama
+EMBEDDINGS_MODEL=bge-m3
+EMBEDDINGS_DIM=1024
+
+RERANKER_PROVIDER=bge             # already local; set to 'none' if no GPU headroom
+
+# Don't even need an OpenAI key:
+# OPENAI_API_KEY=
+```
+
+Then on the GPU pod, pull the embedding model too:
+
+```bash
+ollama pull qwen2.5:32b      # ~20 GB Q4
+ollama pull bge-m3           # ~600 MB
+```
+
+**Critical: changing `EMBEDDINGS_DIM` requires a DB migration.** The
+chunks table's `embedding` column is fixed at table creation. To switch
+from 1536 (OpenAI) to 1024 (bge-m3):
+
+```bash
+# 1. Edit packages/core/alembic/versions/0003_change_embedding_dim_template.py
+#    Set _NEW_DIM = 1024
+# 2. Run the migration (it TRUNCATEs the chunks table — embeddings would
+#    be meaningless across a model swap anyway):
+make migrate
+# 3. Re-ingest your corpus (the pipeline is idempotent on content_hash):
+make demo-corpus
+```
+
+Verify by hitting `/v1/config` — it should show your new model + dim.
 
 ## Troubleshooting
 
