@@ -4,6 +4,7 @@ import { Sidebar } from "../components/Sidebar";
 import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
+import { UploadModal } from "../components/UploadModal";
 import { getConfig, streamAsk, type Citation, type PublicConfig } from "../lib/api";
 import { loadSettings } from "../lib/settings";
 
@@ -14,6 +15,7 @@ export function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
   const [hasKey, setHasKey] = useState<boolean>(!!loadSettings().openaiApiKey);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -112,18 +114,33 @@ export function ChatPage() {
               {hasKey ? " · using your key" : config?.require_byok ? " · BYOK required" : ""}
             </p>
           </div>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="rounded p-2 text-ink-700 hover:bg-slate-100"
-            aria-label="Settings"
-            title="Settings"
-          >
-            {/* simple gear glyph — no extra icon dep */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowUpload(true)}
+              className="rounded p-2 text-ink-700 hover:bg-slate-100"
+              aria-label="Upload document"
+              title="Upload document"
+            >
+              {/* up-arrow-into-tray glyph */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="rounded p-2 text-ink-700 hover:bg-slate-100"
+              aria-label="Settings"
+              title="Settings"
+            >
+              {/* simple gear glyph — no extra icon dep */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+              </svg>
+            </button>
+          </div>
         </header>
 
         {blockedByByok && (
@@ -159,6 +176,10 @@ export function ChatPage() {
         open={showSettings}
         onClose={closeSettings}
         requireByok={!!config?.require_byok}
+      />
+      <UploadModal
+        open={showUpload}
+        onClose={() => setShowUpload(false)}
       />
     </div>
   );

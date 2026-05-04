@@ -105,3 +105,65 @@ export async function listSessions() {
   if (!r.ok) return [];
   return (await r.json()) as Array<{ id: string; title: string | null }>;
 }
+
+export type UploadResult = {
+  status: "ok" | "skipped" | "failed";
+  document_id: string;
+  job_id: string;
+  chunks_written: number;
+  note: string;
+};
+
+export type DocumentRecord = {
+  id: string;
+  title: string;
+  source_uri: string;
+  doc_type: string | null;
+  effective_date: string | null;
+  summary: string | null;
+  keyphrases: string[] | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Upload one document; the api ingests synchronously (parse + chunk +
+ *  embed + store). Returns when ingestion finishes. */
+export async function uploadDocument(
+  file: File,
+  opts?: { title?: string; signal?: AbortSignal }
+): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  if (opts?.title) form.append("title", opts.title);
+  const r = await fetch("/v1/ingest/upload", {
+    method: "POST",
+    headers: authHeaders(loadSettings()),
+    body: form,
+    signal: opts?.signal,
+  });
+  if (!r.ok) {
+    let detail = "";
+    try {
+      detail = (await r.json())?.detail ?? "";
+    } catch {
+      detail = await r.text();
+    }
+    throw new Error(`Upload failed (HTTP ${r.status}): ${detail}`);
+  }
+  return (await r.json()) as UploadResult;
+}
+
+export async function listDocuments(opts?: {
+  onlyActive?: boolean;
+  limit?: number;
+}): Promise<DocumentRecord[]> {
+  const params = new URLSearchParams();
+  if (opts?.onlyActive !== undefined) params.set("only_active", String(opts.onlyActive));
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  const r = await fetch(`/v1/documents${qs ? "?" + qs : ""}`, {
+    headers: authHeaders(loadSettings()),
+  });
+  if (!r.ok) return [];
+  return (await r.json()) as DocumentRecord[];
+}
