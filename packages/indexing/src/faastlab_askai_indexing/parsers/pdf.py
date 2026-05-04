@@ -3,18 +3,20 @@
 Strategy:
 1. Try PyMuPDF (`pymupdf` / `fitz`) — fast, accurate on born-digital PDFs
    like the FCA Handbook and BoE consultations.
-2. Heuristic check: if the extracted text density is suspiciously low
-   (< 50 chars per page on average) we treat it as scanned/image-based
-   and fall back to Unstructured (which calls into OCR if needed).
-3. Anything Unstructured can't handle bubbles up as `ParserError`.
+2. If PyMuPDF returns nothing (some browser "Save as PDF" outputs use
+   form XObjects PyMuPDF doesn't traverse, others embed text as vector
+   paths with no ToUnicode mapping), fall back to Unstructured which
+   uses pdfminer.six under the hood and handles those edge cases.
+3. If Unstructured also returns nothing, only THEN do we conclude the
+   PDF has no embedded text and needs OCR.
 
 Block-level extraction preserves page numbers, char offsets, and a
-section path inferred from heading-style font sizes (rough but useful
-for the FCA Handbook's hierarchical structure).
+section path inferred from heading-style font sizes.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import pymupdf  # type: ignore[import-untyped]
@@ -28,13 +30,15 @@ from faastlab_askai_indexing.parsers.base import (
 if TYPE_CHECKING:
     from faastlab_askai_core.config import Settings
 
+log = logging.getLogger(__name__)
+
 
 _PDF_MIME_TYPES = ("application/pdf",)
 _LOW_DENSITY_THRESHOLD = 50  # chars per page
 
 
 class PdfParser:
-    """PDF → ParsedDocument via PyMuPDF, with optional Unstructured fallback."""
+    """PDF → ParsedDocument via PyMuPDF, with Unstructured fallback."""
 
     def __init__(self, settings: "Settings | None" = None) -> None:
         # Settings retained for future use (e.g. forcing Unstructured-only).
@@ -45,15 +49,34 @@ class PdfParser:
         return _PDF_MIME_TYPES
 
     def parse(self, data: bytes, *, filename: str | None = None) -> ParsedDocument:
+        # 1. PyMuPDF first — fast path covers ~95% of regulator PDFs.
         try:
             doc = pymupdf.open(stream=data, filetype="pdf")
         except Exception as exc:  # noqa: BLE001
             raise ParserError(f"PyMuPDF failed to open PDF: {exc}") from exc
-
         try:
-            return self._parse_with_pymupdf(doc, filename=filename)
+            try:
+                return self._parse_with_pymupdf(doc, filename=filename)
+            except ParserError as exc:
+                log.info(
+                    "PyMuPDF returned no text for %s — falling back to Unstructured",
+                    filename or "<unnamed.pdf>",
+                )
+                primary_failure = exc
         finally:
             doc.close()
+
+        # 2. Unstructured fallback — handles form XObjects, weird CID fonts,
+        # PDFs with text as paths, etc. No OCR (that needs Tesseract); we
+        # only use Unstructured's "fast" strategy for embedded text.
+        try:
+            return self._parse_with_unstructured(data, filename=filename)
+        except ParserError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ParserError(
+                f"Unstructured fallback also failed: {exc}"
+            ) from exc
 
     # ---- Internal ---------------------------------------------------------
 
@@ -131,6 +154,77 @@ class PdfParser:
             blocks=blocks,
             page_count=page_count,
             metadata=metadata,
+        )
+
+
+    # ---- Unstructured fallback -------------------------------------------
+
+    def _parse_with_unstructured(
+        self, data: bytes, *, filename: str | None
+    ) -> ParsedDocument:
+        try:
+            from unstructured.partition.pdf import partition_pdf
+        except ImportError as exc:
+            raise ParserError(
+                "Unstructured not installed — required for Save-as-PDF / "
+                "browser-print PDFs. Install with: "
+                "uv pip install 'unstructured[pdf]'"
+            ) from exc
+
+        from io import BytesIO
+
+        elements = partition_pdf(file=BytesIO(data), strategy="fast")
+        blocks: list[ParsedBlock] = []
+        char_offset = 0
+        title = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] if filename else None
+        page_count = 0
+
+        for el in elements:
+            text_value = (str(el).strip() if el else "")
+            if not text_value:
+                continue
+            page_num = None
+            try:
+                page_num = el.metadata.page_number  # type: ignore[attr-defined]
+                if page_num is not None:
+                    page_count = max(page_count, int(page_num))
+            except AttributeError:
+                pass
+
+            kind = type(el).__name__
+            block_type = (
+                "heading" if kind in {"Title", "Header"}
+                else "list_item" if kind == "ListItem"
+                else "paragraph"
+            )
+            if block_type == "heading" and not title:
+                title = text_value
+
+            start = char_offset
+            end = char_offset + len(text_value)
+            blocks.append(
+                ParsedBlock(
+                    text=text_value,
+                    block_type=block_type,
+                    page_number=int(page_num) if page_num is not None else None,
+                    char_start=start,
+                    char_end=end,
+                )
+            )
+            char_offset = end + 2
+
+        if not blocks:
+            raise ParserError(
+                "Both PyMuPDF and Unstructured returned no text — the PDF "
+                "appears to have no embedded text layer (likely scanned). "
+                "OCR fallback isn't enabled in this build."
+            )
+
+        return ParsedDocument(
+            title=title,
+            blocks=blocks,
+            page_count=page_count or None,
+            metadata={"parser": "unstructured"},
         )
 
 
