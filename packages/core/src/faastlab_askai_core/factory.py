@@ -37,9 +37,14 @@ def get_llm() -> LLMAdapter:
 
         return OpenAIChatLLM(settings)
 
+    if provider == "ollama":
+        from faastlab_askai_askai.adapters import OllamaLLM
+
+        return OllamaLLM(settings)
+
     raise AdapterNotFoundError(
         f"LLM provider {provider!r} not yet wired up "
-        "(supported: openai, azure)"
+        "(supported: openai, azure, ollama)"
     )
 
 

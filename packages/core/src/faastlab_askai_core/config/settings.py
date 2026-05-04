@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str = "2024-08-01-preview"
     azure_openai_deployment: str | None = None
+    # Ollama (local / GPU pod) — used when LLM_PROVIDER=ollama. The
+    # Ollama daemon must be reachable at OLLAMA_BASE_URL with the model
+    # tag named in LLM_MODEL pulled (e.g. `ollama pull qwen2.5:32b`).
+    ollama_base_url: str = "http://localhost:11434"
 
     # ---- Embeddings ----
     # NB: pgvector's HNSW index caps at 2000 dimensions, so the default is
