@@ -157,74 +157,72 @@ class PdfParser:
         )
 
 
-    # ---- Unstructured fallback -------------------------------------------
+    # ---- pdfminer.six fallback -------------------------------------------
 
     def _parse_with_unstructured(
         self, data: bytes, *, filename: str | None
     ) -> ParsedDocument:
+        """Fallback for browser Save-as-PDF / Print-to-PDF outputs.
+
+        Uses pdfminer.six (pure Python, no native deps, ships in our
+        indexing deps). This is what Unstructured wraps internally for
+        strategy='fast'; calling it directly avoids the optional-extras
+        import errors we saw with unstructured[pdf].
+        """
         try:
-            from unstructured.partition.pdf import partition_pdf
+            from io import BytesIO
+
+            from pdfminer.high_level import extract_text
         except ImportError as exc:
             raise ParserError(
-                "Unstructured not installed — required for Save-as-PDF / "
-                "browser-print PDFs. Install with: "
-                "uv pip install 'unstructured[pdf]'"
+                "pdfminer.six not installed — needed for browser Save-as-PDF "
+                "fallback. Add 'pdfminer.six' to packages/indexing deps and "
+                "rebuild the api container."
             ) from exc
 
-        from io import BytesIO
+        try:
+            full_text = extract_text(BytesIO(data)) or ""
+        except Exception as exc:  # noqa: BLE001
+            raise ParserError(f"pdfminer.six failed: {exc}") from exc
 
-        elements = partition_pdf(file=BytesIO(data), strategy="fast")
-        blocks: list[ParsedBlock] = []
-        char_offset = 0
-        title = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] if filename else None
-        page_count = 0
-
-        for el in elements:
-            text_value = (str(el).strip() if el else "")
-            if not text_value:
-                continue
-            page_num = None
-            try:
-                page_num = el.metadata.page_number  # type: ignore[attr-defined]
-                if page_num is not None:
-                    page_count = max(page_count, int(page_num))
-            except AttributeError:
-                pass
-
-            kind = type(el).__name__
-            block_type = (
-                "heading" if kind in {"Title", "Header"}
-                else "list_item" if kind == "ListItem"
-                else "paragraph"
-            )
-            if block_type == "heading" and not title:
-                title = text_value
-
-            start = char_offset
-            end = char_offset + len(text_value)
-            blocks.append(
-                ParsedBlock(
-                    text=text_value,
-                    block_type=block_type,
-                    page_number=int(page_num) if page_num is not None else None,
-                    char_start=start,
-                    char_end=end,
-                )
-            )
-            char_offset = end + 2
-
-        if not blocks:
+        if not full_text.strip():
             raise ParserError(
-                "Both PyMuPDF and Unstructured returned no text — the PDF "
+                "Both PyMuPDF and pdfminer.six returned no text — the PDF "
                 "appears to have no embedded text layer (likely scanned). "
                 "OCR fallback isn't enabled in this build."
             )
+
+        blocks: list[ParsedBlock] = []
+        char_offset = 0
+        title = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] if filename else None
+
+        # extract_text inserts \x0c (form feed) between pages.
+        pages = full_text.split("\x0c")
+        page_count = sum(1 for p in pages if p.strip())
+
+        for page_num, page_text in enumerate(pages, start=1):
+            if not page_text.strip():
+                continue
+            paragraphs = [p.strip() for p in page_text.split("\n\n") if p.strip()]
+            for text_value in paragraphs:
+                start = char_offset
+                end = char_offset + len(text_value)
+                blocks.append(
+                    ParsedBlock(
+                        text=text_value,
+                        block_type=_infer_block_type(text_value),
+                        page_number=page_num,
+                        char_start=start,
+                        char_end=end,
+                    )
+                )
+                char_offset = end + 2
 
         return ParsedDocument(
             title=title,
             blocks=blocks,
             page_count=page_count or None,
-            metadata={"parser": "unstructured"},
+            metadata={"parser": "pdfminer.six"},
         )
 
 

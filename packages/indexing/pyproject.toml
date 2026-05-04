@@ -21,7 +21,8 @@ dependencies = [
   "botocore>=1.35",
   # Parsers
   "pymupdf>=1.24",                 # default PDF parser
-  "unstructured[pdf,docx,html,md]>=0.16",  # fallback for messy PDFs + DOCX/HTML/MD
+  "pdfminer.six>=20240706",        # tiny pure-Python fallback for browser Save-as-PDF
+  "unstructured[pdf,docx,html,md]>=0.16",  # heavier fallback (and DOCX/HTML/MD)
   "python-docx>=1.1",
   "beautifulsoup4>=4.12",
   "lxml>=5.3",
