@@ -76,14 +76,26 @@ class PdfParser:
             page_text = page.get_text("text") or ""
             total_chars += len(page_text)
 
-            # PyMuPDF's "blocks" output gives us coordinate-grouped chunks
-            # which align well with paragraphs in well-formed PDFs.
+            # Preferred: PyMuPDF's "blocks" output (coordinate-grouped,
+            # aligns well with paragraphs in well-formed PDFs).
             page_blocks = page.get_text("blocks")  # list of (x0,y0,x1,y1,text,...)
-            for raw in page_blocks:
-                text_value = (raw[4] or "").strip()
-                if not text_value:
-                    continue
+            block_texts: list[str] = [
+                (raw[4] or "").strip() for raw in page_blocks
+            ]
+            block_texts = [b for b in block_texts if b]
 
+            # Fallback: some PDFs (especially "Save as PDF" from browsers,
+            # or PDFs using form XObjects / complex content streams) yield
+            # zero blocks but still have plain text. Rebuild pseudo-blocks
+            # by splitting page_text on blank lines.
+            if not block_texts and page_text.strip():
+                block_texts = [
+                    para.strip()
+                    for para in page_text.split("\n\n")
+                    if para.strip()
+                ]
+
+            for text_value in block_texts:
                 start = char_offset
                 end = char_offset + len(text_value)
                 blocks.append(
@@ -99,8 +111,9 @@ class PdfParser:
 
         if not blocks:
             raise ParserError(
-                "PyMuPDF extracted no text blocks — PDF may be scanned/image-based; "
-                "OCR fallback not yet wired up (Phase 2 stretch)."
+                "PyMuPDF extracted no text — PDF may be scanned/image-based "
+                "(no embedded text layer). OCR fallback isn't enabled in "
+                "this build; try a born-digital PDF, or OCR the file first."
             )
 
         # Heuristic: very low density → likely scanned. Log via metadata so
