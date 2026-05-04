@@ -141,16 +141,28 @@ export async function uploadDocument(
     body: form,
     signal: opts?.signal,
   });
+  // Read the body once as text, then try to parse JSON from that.
+  // Doing r.json() with a fallback to r.text() throws 'body stream
+  // already read' because the first read consumes the stream.
+  const raw = await r.text();
   if (!r.ok) {
-    let detail = "";
+    let detail = raw;
     try {
-      detail = (await r.json())?.detail ?? "";
+      detail = JSON.parse(raw)?.detail ?? raw;
     } catch {
-      detail = await r.text();
+      /* raw isn't JSON — keep as-is */
     }
-    throw new Error(`Upload failed (HTTP ${r.status}): ${detail}`);
+    throw new Error(
+      `Upload failed (HTTP ${r.status}): ${detail || r.statusText}`
+    );
   }
-  return (await r.json()) as UploadResult;
+  try {
+    return JSON.parse(raw) as UploadResult;
+  } catch {
+    throw new Error(
+      `Upload succeeded but response wasn't JSON: ${raw.slice(0, 200)}`
+    );
+  }
 }
 
 export async function listDocuments(opts?: {
