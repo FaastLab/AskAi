@@ -243,9 +243,8 @@ def upgrade() -> None:
         """
         INSERT INTO tenants (id, slug, name, is_active)
         VALUES
-          (uuid_generate_v4(), 'faastlab-internal', 'FaastLab Internal', true),
-          (uuid_generate_v4(), 'demo-public',       'Demo (UK FinReg)',  true),
-          (uuid_generate_v4(), 'demo-template',     'Demo Template',     true)
+          (uuid_generate_v4(), 'demo-public',   'Demo (UK FinReg)', true),
+          (uuid_generate_v4(), 'demo-template', 'Demo Template',    true)
         ON CONFLICT (slug) DO NOTHING
         """
     )

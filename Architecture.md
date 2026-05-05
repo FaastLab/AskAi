@@ -170,9 +170,8 @@ Single Postgres instance handles everything early on. Split out as scale require
 
 `tenant_id` is on every table, every API call, every search filter, every queue. Three default tenants shipped:
 
-- `faastlab-internal` — FaastLab's own SOPs, contracts, frameworks
 - `demo-public` — UK Financial Regulation corpus (BoE, FCA, PRA)
-- `demo-template` — Empty template clients can clone
+- `demo-template` — empty template clients can clone for their own tenant
 
 Auth middleware injects `tenant_id` from JWT claims. No cross-tenant access ever.
 
@@ -182,14 +181,12 @@ Auth middleware injects `tenant_id` from JWT claims. No cross-tenant access ever
 
 AskAi is designed as a knowledge layer **for** agents, not as a competing agent platform. But it ships with one reference agent module (`validators/`) showing how to build agents on top.
 
-### Reference: regulatory validator agent
-Takes a regulatory report (PDF), parses claims, queries AskAi for relevant rules, compares, produces traffic-light validation with citations.
-
-This pattern generalises to:
-- Contract review against standard terms
-- Policy compliance against SOPs
-- Tender response checking against RFPs
-- Engineering design checks against standards
+### Reference: regulatory report validator
+Takes a regulatory report (PDF), parses the claims it makes, queries
+AskAi for the matching rules in your indexed regulatory corpus,
+compares, and produces a traffic-light verdict with paragraph-level
+citations — exactly the workflow a fintech compliance officer or a
+PRA / FCA submission reviewer needs.
 
 ---
 
@@ -351,5 +348,5 @@ AskAi/
 - Real-time ingestion via webhooks (SharePoint change notifications, S3 events)
 - GraphRAG layer for cross-document entity reasoning
 - Fine-grained ACLs (document-level permissions, not just tenant)
-- Multi-modal: image + diagram retrieval (relevant for engineering docs)
+- Multi-modal: image + chart retrieval (e.g. for tables and diagrams in regulatory PDFs)
 - Local LLM support out of the box (Ollama adapter) for fully air-gapped deployments

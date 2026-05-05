@@ -104,11 +104,11 @@ Drop in your SharePoint, Confluence, or S3 documents. Get a chat UI for your tea
 **For companies building AI agents**
 Use AskAi as the knowledge backbone. Any agent (Claude, LangGraph, CrewAI, custom) can call it via REST or MCP.
 
-**For regulatory / compliance use**
-Ingest regulations and standards. Build validator agents that check reports, contracts, or designs against the corpus, with full paragraph-level citations.
-
-**For consultancies (like FaastLab)**
-Deliver document intelligence to clients on whatever stack they have — fully open, fully Azure, or anything in between.
+**For fintech and regulated firms**
+Ingest the regulatory handbooks, supervisory statements, and policy
+papers your firm has to comply with (FCA, PRA, BoE, equivalents). Build
+validator agents that check internal reports against the corpus, with
+paragraph-level citations back to the source rule.
 
 ---
 
