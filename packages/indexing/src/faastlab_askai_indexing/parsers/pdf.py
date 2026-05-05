@@ -57,26 +57,30 @@ class PdfParser:
         try:
             try:
                 return self._parse_with_pymupdf(doc, filename=filename)
-            except ParserError as exc:
+            except ParserError:
                 log.info(
-                    "PyMuPDF returned no text for %s — falling back to Unstructured",
+                    "PyMuPDF returned no text for %s — trying pdfminer.six",
                     filename or "<unnamed.pdf>",
                 )
-                primary_failure = exc
         finally:
             doc.close()
 
-        # 2. Unstructured fallback — handles form XObjects, weird CID fonts,
-        # PDFs with text as paths, etc. No OCR (that needs Tesseract); we
-        # only use Unstructured's "fast" strategy for embedded text.
+        # 2. pdfminer.six fallback — pure Python, handles form XObjects,
+        # weird CID fonts, PDFs with text as paths.
         try:
             return self._parse_with_unstructured(data, filename=filename)
         except ParserError:
-            raise
+            log.info(
+                "pdfminer.six also returned no text for %s — falling back to OCR",
+                filename or "<unnamed.pdf>",
+            )
         except Exception as exc:  # noqa: BLE001
-            raise ParserError(
-                f"Unstructured fallback also failed: {exc}"
-            ) from exc
+            log.warning("pdfminer.six errored for %s: %s — trying OCR", filename, exc)
+
+        # 3. OCR fallback — Tesseract (installed in the Docker image).
+        # Handles raster-printed PDFs, scans, photos of pages, and any
+        # browser-saved PDF that flattened text into images.
+        return self._parse_with_ocr(data, filename=filename)
 
     # ---- Internal ---------------------------------------------------------
 
@@ -156,6 +160,79 @@ class PdfParser:
             metadata=metadata,
         )
 
+
+    # ---- OCR fallback (Tesseract) ----------------------------------------
+
+    def _parse_with_ocr(
+        self, data: bytes, *, filename: str | None
+    ) -> ParsedDocument:
+        """Last-resort OCR. Uses PyMuPDF's built-in Tesseract integration.
+
+        Slow (~2s/page on CPU) but bulletproof — handles raster-printed
+        PDFs, scans, photos. Tesseract is installed in our Docker image.
+        """
+        try:
+            doc = pymupdf.open(stream=data, filetype="pdf")
+        except Exception as exc:  # noqa: BLE001
+            raise ParserError(f"PyMuPDF could not open PDF for OCR: {exc}") from exc
+
+        blocks: list[ParsedBlock] = []
+        char_offset = 0
+        title = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0] if filename else None
+        page_count = doc.page_count
+
+        try:
+            for page_num, page in enumerate(doc, start=1):
+                try:
+                    # PyMuPDF >= 1.20 exposes Tesseract via get_textpage_ocr.
+                    tp = page.get_textpage_ocr(language="eng", dpi=200, full=True)
+                    page_text = page.get_text("text", textpage=tp) or ""
+                except Exception as exc:  # noqa: BLE001
+                    raise ParserError(
+                        f"OCR failed (Tesseract not available?): {exc}"
+                    ) from exc
+
+                if not page_text.strip():
+                    continue
+                paragraphs = [
+                    p.strip() for p in page_text.split("\n\n") if p.strip()
+                ]
+                for text_value in paragraphs:
+                    start = char_offset
+                    end = char_offset + len(text_value)
+                    blocks.append(
+                        ParsedBlock(
+                            text=text_value,
+                            block_type=_infer_block_type(text_value),
+                            page_number=page_num,
+                            char_start=start,
+                            char_end=end,
+                        )
+                    )
+                    char_offset = end + 2
+        finally:
+            doc.close()
+
+        if not blocks:
+            raise ParserError(
+                "Tried PyMuPDF, pdfminer.six and Tesseract OCR — none could "
+                "extract any text from this PDF. The pages may be blank, "
+                "encrypted, or contain unrecognisable script."
+            )
+
+        log.info(
+            "OCR succeeded for %s: %d blocks across %d pages",
+            filename or "<unnamed.pdf>",
+            len(blocks),
+            page_count,
+        )
+
+        return ParsedDocument(
+            title=title,
+            blocks=blocks,
+            page_count=page_count,
+            metadata={"parser": "tesseract-ocr"},
+        )
 
     # ---- pdfminer.six fallback -------------------------------------------
 
