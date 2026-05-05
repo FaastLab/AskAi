@@ -68,7 +68,7 @@ AskAi fills that gap. Every external dependency is behind an **adapter** — swa
 └────────────────────────────────────────────────────────────────┘
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
+See [`Architecture.md`](Architecture.md) for the full design.
 
 ---
 
