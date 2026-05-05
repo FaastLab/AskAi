@@ -13,8 +13,8 @@ dependencies = [
   # LLM clients
   "openai>=1.54",
   "tenacity>=9.0",
-  # LangChain / LangGraph (Phase 5.x — multi-step flow)
-  # Pinned per CLAUDE.md; we only use them for LangGraph in Phase 5.x.
+  # LangChain / LangGraph (Phase 5.x — multi-step flow). Pinned to 0.3.x;
+  # we only use them for LangGraph in Phase 5.x (multi-hop reasoning).
   "langchain>=0.3,<0.4",
   "langchain-openai>=0.2",
   "langgraph>=0.2",

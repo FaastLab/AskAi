@@ -1,7 +1,7 @@
 # AskAi — Architecture
 
 > Full technical design for FaastLab AskAi.
-> Companion to `README.md` (vision) and `CLAUDE.md` (build instructions).
+> Companion to `README.md` (vision and quick-start).
 
 ---
 
@@ -250,8 +250,7 @@ This pattern generalises to:
 ```
 AskAi/
 ├── README.md
-├── ARCHITECTURE.md
-├── CLAUDE.md                       # Build instructions for Claude Code
+├── Architecture.md
 ├── LICENSE
 ├── docker-compose.yml
 ├── .env.example

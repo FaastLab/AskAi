@@ -127,7 +127,7 @@ All controlled by config. No code changes between modes.
 
 ## Project status
 
-Active development. See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`CLAUDE.md`](CLAUDE.md) for the full design and build plan.
+Active development. See [`Architecture.md`](Architecture.md) for the full design.
 
 ---
 
