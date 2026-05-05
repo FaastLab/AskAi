@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# ---- Private context (never commit) ----
+Claude.md
+Claude_Conversation.md
+*_private.md
+PHASE1_NOTES.md
+
 # ---- Python ----
 __pycache__/
 *.py[cod]
