@@ -92,8 +92,8 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
       MINIO_ENDPOINT: http://minio:9000
-    ports:
-      - "${API_PORT:-8000}:8000"
+    # ports:  # closed — internal only, accessed via NPM through askai-web
+    #   - "${API_PORT:-8000}:8000"
     command:
       - uvicorn
       - faastlab_askai_api.main:app
@@ -166,8 +166,8 @@ services:
     depends_on:
       api:
         condition: service_started
-    ports:
-      - "${WEB_PORT:-3000}:80"
+    # ports:  # closed — internal only, NPM proxies us
+    #   - "${WEB_PORT:-3000}:80"
     networks:
       - default
       - proxy
