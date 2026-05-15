@@ -168,6 +168,15 @@ ui:  ## Run the Vite + React chat UI on :3000 (in a third terminal)
 demo-corpus:  ## Ingest the UK FinReg demo corpus into demo-public tenant
 	$(UV) run python -m corpus.uk_finreg.loader $${NO_SUMMARISE:+--no-summarise}
 
+# ---------- Watcher (regulator change feed) ----------
+.PHONY: watcher-poll
+watcher-poll:  ## One-shot poll of regulator feeds: make watcher-poll [REGULATOR=fca]
+	$(UV) run python -m faastlab_askai_watcher poll $${REGULATOR:+--regulator $$REGULATOR}
+
+.PHONY: watcher-feeds
+watcher-feeds:  ## List configured feed URLs
+	$(UV) run python -m faastlab_askai_watcher list-feeds
+
 # ---------- Cleanup ----------
 .PHONY: clean
 clean:  ## Remove caches and build artefacts

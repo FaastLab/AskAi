@@ -240,3 +240,54 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ---- Watcher events ---------------------------------------------------------
+
+
+class WatcherEvent(Base):
+    """One regulator publication captured by the watcher.
+
+    Dedup is enforced by `uq_watcher_events_regulator_external` so
+    re-polling the same feed is idempotent — feeds may safely return
+    overlapping windows.
+
+    `tenant_id` is the tenant the event is published *to* — typically the
+    `demo-public` tenant on the open knowledge base, so new FCA
+    publications become searchable as soon as they're ingested. Private
+    tier deployments configure their own watcher tenant.
+    """
+
+    __tablename__ = "watcher_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "regulator", "external_id", name="uq_watcher_events_regulator_external"
+        ),
+        Index("ix_watcher_events_tenant_published", "tenant_id", "published_at"),
+        Index("ix_watcher_events_regulator", "regulator"),
+        Index("ix_watcher_events_ingested", "ingested"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    regulator: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="publication"
+    )
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    ingested: Mapped[bool] = mapped_column(default=False, nullable=False)
+    document_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    notified: Mapped[bool] = mapped_column(default=False, nullable=False)
+    notification_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -44,9 +44,10 @@ COPY packages/api/pyproject.toml              packages/api/pyproject.toml
 COPY packages/mcp/pyproject.toml              packages/mcp/pyproject.toml
 COPY packages/sdk/pyproject.toml              packages/sdk/pyproject.toml
 COPY packages/validators/pyproject.toml       packages/validators/pyproject.toml
+COPY packages/watcher/pyproject.toml          packages/watcher/pyproject.toml
 
 # Stub each package's src tree so the editable install resolves.
-RUN for pkg in core indexing search summarisation askai api mcp sdk validators; do \
+RUN for pkg in core indexing search summarisation askai api mcp sdk validators watcher; do \
       mkdir -p packages/$pkg/src/faastlab_askai_$pkg && \
       touch packages/$pkg/src/faastlab_askai_$pkg/__init__.py && \
       touch packages/$pkg/README.md; \

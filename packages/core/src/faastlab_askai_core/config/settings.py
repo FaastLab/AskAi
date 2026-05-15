@@ -150,6 +150,24 @@ class Settings(BaseSettings):
     pdf_parser: PdfParser = "pymupdf"
     parser_fallback: PdfParser = "unstructured"
 
+    # ---- Watcher (regulator change feed) ----
+    # Polls UK regulator RSS feeds and persists new publications. Disabled
+    # by default; flip WATCHER_ENABLED=true in the worker env to switch on.
+    watcher_enabled: bool = False
+    watcher_tenant_slug: str = "demo-public"
+    watcher_poll_interval_seconds: int = 3600  # hourly by default
+    watcher_user_agent: str = "FaastLab-AskAi-Watcher/0.1 (+https://faastlab.ai)"
+    # Generic webhook — POSTs new events as JSON. Leave None to skip.
+    watcher_webhook_url: str | None = None
+    # Per-regulator feed URLs (override if a regulator moves a feed).
+    watcher_fca_url: str = "https://www.fca.org.uk/news/rss.xml"
+    watcher_boe_url: str = "https://www.bankofengland.co.uk/rss/news"
+    watcher_pra_url: str = (
+        "https://www.bankofengland.co.uk/rss/prudential-regulation/publications"
+    )
+    watcher_fos_url: str = "https://www.financial-ombudsman.org.uk/rss/news"
+    watcher_tpr_url: str = "https://www.thepensionsregulator.gov.uk/rss/news"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]

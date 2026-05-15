@@ -5,7 +5,7 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, streamAsk, type Citation, type PublicConfig } from "../lib/api";
+import { getConfig, getSession, streamAsk, type Citation, type PublicConfig } from "../lib/api";
 import { loadSettings } from "../lib/settings";
 
 export function ChatPage() {
@@ -29,6 +29,37 @@ export function ChatPage() {
       if (c?.require_byok && !stored) setShowSettings(true);
     });
   }, []);
+
+  // Load session history when the URL session param changes (clicking a
+  // session in the sidebar) — or reset to a fresh chat when there's no
+  // session in the URL ("+ New chat"). Also aborts any in-flight stream
+  // so navigating mid-answer doesn't mix messages.
+  useEffect(() => {
+    abortRef.current?.abort();
+    if (!sessionParam) {
+      setSessionId(null);
+      setMessages([]);
+      return;
+    }
+    setSessionId(sessionParam);
+    let cancelled = false;
+    getSession(sessionParam).then((s) => {
+      if (cancelled) return;
+      if (!s) {
+        setMessages([]);
+        return;
+      }
+      setMessages(
+        s.history.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }))
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionParam]);
 
   // Re-read storage when the modal closes (in case the user saved a key).
   const closeSettings = () => {

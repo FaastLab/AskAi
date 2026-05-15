@@ -125,6 +125,37 @@ services:
       - --concurrency=2
     restart: unless-stopped
 
+  watcher:
+    # Regulator change watcher — opt-in via the `watcher` profile so it
+    # only spins up where it's wanted (e.g. the public live demo VM, not
+    # every dev machine). Combines beat + worker into one process since
+    # the task volume is trivial (hourly poll across 5 feeds).
+    image: faastlab/askai:local
+    container_name: askai-watcher
+    profiles: ["watcher"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL_INTERNAL:-postgresql+asyncpg://askai:askai@postgres:5432/askai}
+      REDIS_URL: ${REDIS_URL_INTERNAL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
+      WATCHER_ENABLED: "true"
+    command:
+      - celery
+      - -A
+      - faastlab_askai_watcher.celery_app:celery_app
+      - worker
+      - --beat
+      - --loglevel=info
+      - --concurrency=1
+    restart: unless-stopped
+
   web:
     build:
       context: ./apps/web

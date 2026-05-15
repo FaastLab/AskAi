@@ -9,6 +9,7 @@ from faastlab_askai_core.db.models import (
     DocumentVersion,
     IngestionJob,
     Tenant,
+    WatcherEvent,
 )
 from faastlab_askai_core.db.session import get_engine, get_sessionmaker
 
@@ -21,6 +22,7 @@ __all__ = [
     "DocumentVersion",
     "IngestionJob",
     "Tenant",
+    "WatcherEvent",
     "get_engine",
     "get_sessionmaker",
 ]

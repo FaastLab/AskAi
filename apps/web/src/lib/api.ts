@@ -106,6 +106,28 @@ export async function listSessions() {
   return (await r.json()) as Array<{ id: string; title: string | null }>;
 }
 
+export type SessionMessage = {
+  role: "user" | "assistant";
+  content: string;
+  ts?: string;
+};
+
+export type SessionDetail = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  history: SessionMessage[];
+};
+
+export async function getSession(id: string): Promise<SessionDetail | null> {
+  const r = await fetch(`/v1/sessions/${id}`, {
+    headers: authHeaders(loadSettings()),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as SessionDetail;
+}
+
 export type UploadResult = {
   status: "ok" | "skipped" | "failed";
   document_id: string;
@@ -116,12 +138,15 @@ export type UploadResult = {
 
 export type DocumentRecord = {
   id: string;
+  tenant_id: string;
   title: string;
   source_uri: string;
   doc_type: string | null;
+  version: string | null;
   effective_date: string | null;
   summary: string | null;
   keyphrases: string[] | null;
+  size_bytes: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -178,4 +203,46 @@ export async function listDocuments(opts?: {
   });
   if (!r.ok) return [];
   return (await r.json()) as DocumentRecord[];
+}
+
+/** URL for downloading / previewing the original document file. */
+export function documentFileUrl(id: string): string {
+  return `/v1/documents/${id}/file`;
+}
+
+export type SearchHit = {
+  id: string;            // chunk id
+  document_id: string;
+  content: string;
+  section_path: string | null;
+  page_number: number | null;
+  score: number;
+  rank: number;
+};
+
+export type SearchResult = {
+  query: string;
+  latency_ms: number;
+  hits: SearchHit[];
+};
+
+/** Hybrid search (vector + BM25 + rerank) — same engine the chat uses. */
+export async function searchChunks(
+  query: string,
+  opts?: { k?: number; onlyActive?: boolean }
+): Promise<SearchResult | null> {
+  const r = await fetch("/v1/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(loadSettings()),
+    },
+    body: JSON.stringify({
+      query,
+      k: opts?.k ?? 10,
+      filters: { only_active: opts?.onlyActive ?? true },
+    }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as SearchResult;
 }
