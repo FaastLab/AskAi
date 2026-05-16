@@ -18,6 +18,8 @@ dependencies = [
   "sse-starlette>=2.1",
   "python-multipart>=0.0.18",     # for file uploads in /v1/ingest
   "slowapi>=0.1.9",               # rate limiting
+  "bcrypt>=4.2",                  # password hashing for /v1/auth signup+login
+  "email-validator>=2.2",         # used by Pydantic EmailStr
 ]
 
 [dependency-groups]

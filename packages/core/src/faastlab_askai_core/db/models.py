@@ -50,6 +50,15 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    # Trial mode: free until this date, then paywall middleware returns 402.
+    # NULL means "no trial limit" (legacy tenants like demo-public, paid
+    # customers post-Stripe activation, etc.).
+    trial_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Optional plan tier — informational for now; Stripe integration will
+    # update this to "starter" | "team" | "firm" when wired up.
+    plan: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -58,6 +67,57 @@ class Tenant(Base):
     )
 
     documents: Mapped[list["Document"]] = relationship(back_populates="tenant")
+    users: Mapped[list["User"]] = relationship(
+        back_populates="tenant", cascade="all, delete-orphan"
+    )
+
+
+# ---- Users ------------------------------------------------------------------
+
+
+class User(Base):
+    """Tenant member with login credentials.
+
+    Email is the login identifier and globally unique — one human, one
+    account, can be invited into multiple tenants in v2. For Pro v0.1
+    each user belongs to exactly one tenant; multi-tenant membership is
+    a join-table refactor later.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_users_email"),
+        Index("ix_users_tenant_id", "tenant_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(String(256), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # 'owner' (created the tenant), 'admin' (invited admin), 'member'.
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    tenant: Mapped[Tenant] = relationship(back_populates="users")
 
 
 # ---- Documents --------------------------------------------------------------

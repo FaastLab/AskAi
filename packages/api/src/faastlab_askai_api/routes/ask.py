@@ -19,6 +19,7 @@ from faastlab_askai_core.schemas.search import AskRequest, AskResponse
 from faastlab_askai_search.filters import SearchFilters
 
 from faastlab_askai_api.middleware.principal import get_principal
+from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 
 
 def _require_byok_if_configured() -> None:
@@ -44,7 +45,7 @@ _service = AskAiService()
 async def ask(
     body: AskRequest,
     request: Request,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_active_trial_or_subscription),
 ):
     _require_byok_if_configured()
     filters = SearchFilters(

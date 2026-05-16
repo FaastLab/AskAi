@@ -1,6 +1,12 @@
 /** Tiny client wrapper over /v1/ — uses Vite proxy in dev. */
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { bearerHeader, saveAuth, type AuthUser } from "./auth";
 import { authHeaders, loadSettings } from "./settings";
+
+/** Merge BYOK headers + bearer auth so every API call carries both. */
+function allAuthHeaders(): Record<string, string> {
+  return { ...authHeaders(loadSettings()), ...bearerHeader() };
+}
 
 export type Citation = {
   chunk_id: string;
@@ -26,6 +32,223 @@ export type PublicConfig = {
   require_byok: boolean;
   reranker_provider: string;
 };
+
+// ----------------------------------------------------------------------------
+// Auth — signup / login / me
+// ----------------------------------------------------------------------------
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: AuthUser;
+};
+
+export async function signup(body: {
+  email: string;
+  password: string;
+  full_name?: string;
+  organisation: string;
+}): Promise<AuthResponse> {
+  const r = await fetch("/v1/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(`Sign-up failed (HTTP ${r.status}): ${detail}`);
+  }
+  const data = JSON.parse(raw) as AuthResponse;
+  saveAuth({
+    access_token: data.access_token,
+    expires_in: data.expires_in,
+    user: data.user,
+  });
+  return data;
+}
+
+export async function login(body: {
+  email: string;
+  password: string;
+}): Promise<AuthResponse> {
+  const r = await fetch("/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(detail || `Login failed (HTTP ${r.status})`);
+  }
+  const data = JSON.parse(raw) as AuthResponse;
+  saveAuth({
+    access_token: data.access_token,
+    expires_in: data.expires_in,
+    user: data.user,
+  });
+  return data;
+}
+
+export async function fetchMe(): Promise<AuthUser | null> {
+  const r = await fetch("/v1/auth/me", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as AuthUser;
+}
+
+// ----------------------------------------------------------------------------
+// Validators — multi-regulator rule-pack scoring
+// ----------------------------------------------------------------------------
+
+export type RuleRequirementOut = {
+  id: string;
+  title: string;
+  description: string;
+  citation: string;
+  severity: string;
+};
+
+export type RulePackOut = {
+  id: string;
+  regulator: string;
+  name: string;
+  version: string;
+  summary: string;
+  requirements: RuleRequirementOut[];
+};
+
+export type RequirementResultOut = {
+  requirement_id: string;
+  title: string;
+  citation: string;
+  severity: string;
+  verdict: "green" | "amber" | "red" | "n/a";
+  rationale: string;
+  evidence_excerpts: Array<{ text: string; section_path: string | null; page: number | null }>;
+};
+
+export type ValidateReportOut = {
+  pack_id: string;
+  pack_name: string;
+  pack_version: string;
+  document_id: string;
+  document_title: string;
+  overall: "green" | "amber" | "red";
+  score: number;
+  counts: Record<string, number>;
+  requirements: RequirementResultOut[];
+  generated_at: string;
+  latency_ms: number;
+};
+
+export async function listRulePacks(): Promise<RulePackOut[]> {
+  const r = await fetch("/v1/validators/packs", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as RulePackOut[];
+}
+
+export async function runValidation(body: {
+  document_id: string;
+  pack_id: string;
+}): Promise<ValidateReportOut> {
+  const r = await fetch("/v1/validators/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...allAuthHeaders(),
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(`Validation failed (HTTP ${r.status}): ${detail}`);
+  }
+  return JSON.parse(raw) as ValidateReportOut;
+}
+
+// ----------------------------------------------------------------------------
+// Admin (owner-only): users, invites
+// ----------------------------------------------------------------------------
+
+export type TenantUser = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+};
+
+export type InviteResponse = {
+  token: string;
+  accept_url: string;
+  role: string;
+  expires_at: string;
+  note: string;
+};
+
+export async function listTenantUsers(): Promise<TenantUser[]> {
+  const r = await fetch("/v1/admin/users", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as TenantUser[];
+}
+
+export async function createInvite(body?: {
+  email?: string;
+  role?: "member" | "admin";
+  ttl_hours?: number;
+}): Promise<InviteResponse> {
+  const r = await fetch("/v1/admin/invites", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...allAuthHeaders(),
+    },
+    body: JSON.stringify({
+      email: body?.email,
+      role: body?.role ?? "member",
+      ttl_hours: body?.ttl_hours ?? 168,
+    }),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(`Invite creation failed (HTTP ${r.status}): ${detail}`);
+  }
+  return JSON.parse(raw) as InviteResponse;
+}
+
+export async function acceptInvite(body: {
+  token: string;
+  email: string;
+  password: string;
+  full_name?: string;
+}): Promise<{ status: string; tenant_slug: string; tenant_name: string; role: string; next: string }> {
+  const r = await fetch("/v1/auth/accept-invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(detail || `Accept failed (HTTP ${r.status})`);
+  }
+  return JSON.parse(raw);
+}
+
+// ----------------------------------------------------------------------------
+// Config
+// ----------------------------------------------------------------------------
 
 export async function getConfig(): Promise<PublicConfig | null> {
   try {
@@ -54,7 +277,7 @@ export async function* streamAsk(
 
   fetchEventSource("/v1/ask", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders(loadSettings()) },
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
     signal: opts?.signal,
     body: JSON.stringify({
       query: question,
@@ -101,7 +324,7 @@ export async function* streamAsk(
 }
 
 export async function listSessions() {
-  const r = await fetch("/v1/sessions", { headers: authHeaders(loadSettings()) });
+  const r = await fetch("/v1/sessions", { headers: allAuthHeaders() });
   if (!r.ok) return [];
   return (await r.json()) as Array<{ id: string; title: string | null }>;
 }
@@ -122,7 +345,7 @@ export type SessionDetail = {
 
 export async function getSession(id: string): Promise<SessionDetail | null> {
   const r = await fetch(`/v1/sessions/${id}`, {
-    headers: authHeaders(loadSettings()),
+    headers: allAuthHeaders(),
   });
   if (!r.ok) return null;
   return (await r.json()) as SessionDetail;
@@ -162,7 +385,7 @@ export async function uploadDocument(
   if (opts?.title) form.append("title", opts.title);
   const r = await fetch("/v1/ingest/upload", {
     method: "POST",
-    headers: authHeaders(loadSettings()),
+    headers: allAuthHeaders(),
     body: form,
     signal: opts?.signal,
   });
@@ -201,7 +424,7 @@ export async function listDocuments(opts?: {
   if (opts?.docType) params.set("doc_type", opts.docType);
   const qs = params.toString();
   const r = await fetch(`/v1/documents${qs ? "?" + qs : ""}`, {
-    headers: authHeaders(loadSettings()),
+    headers: allAuthHeaders(),
   });
   if (!r.ok) return [];
   return (await r.json()) as DocumentRecord[];
@@ -210,7 +433,7 @@ export async function listDocuments(opts?: {
 /** Counts per category (regulator code) + 'uploads' + 'total' for chip badges. */
 export async function listDocumentCounts(): Promise<Record<string, number>> {
   const r = await fetch("/v1/documents/_counts", {
-    headers: authHeaders(loadSettings()),
+    headers: allAuthHeaders(),
   });
   if (!r.ok) return {};
   return (await r.json()) as Record<string, number>;
@@ -246,7 +469,7 @@ export async function searchChunks(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(loadSettings()),
+      ...allAuthHeaders(),
     },
     body: JSON.stringify({
       query,

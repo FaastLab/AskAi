@@ -42,7 +42,9 @@ from faastlab_askai_api.middleware.principal import (
     rate_limit_key,
 )
 from faastlab_askai_api.routes import (
+    admin,
     ask,
+    auth,
     config as config_route,
     documents,
     health,
@@ -50,6 +52,7 @@ from faastlab_askai_api.routes import (
     search,
     sessions,
     tenants,
+    validators as validators_route,
 )
 
 log = logging.getLogger(__name__)
@@ -107,12 +110,16 @@ def create_app() -> FastAPI:
     # ---- Routes ----
     app.include_router(health.router)
     app.include_router(config_route.router, prefix="/v1")
+    app.include_router(auth.router, prefix="/v1")
+    app.include_router(admin.router, prefix="/v1")
+    app.include_router(admin.acceptance_router, prefix="/v1")
     app.include_router(tenants.router, prefix="/v1")
     app.include_router(documents.router, prefix="/v1")
     app.include_router(ingest.router, prefix="/v1")
     app.include_router(search.router, prefix="/v1")
     app.include_router(ask.router, prefix="/v1")
     app.include_router(sessions.router, prefix="/v1")
+    app.include_router(validators_route.router, prefix="/v1")
 
     return app
 

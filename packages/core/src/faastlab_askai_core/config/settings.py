@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_audience: str = "askai"
     jwt_issuer: str = "faastlab-askai"
+    jwt_token_ttl_seconds: int = 60 * 60 * 24 * 7  # 7 days
+    # Trial mode: new sign-ups get this many days of free use before the
+    # paywall middleware returns 402. Set to 0 to disable (everyone in
+    # trial mode forever — useful for closed-beta phases).
+    trial_default_days: int = 14
 
     # ---- Tenancy ----
     default_tenant: str = "demo-public"

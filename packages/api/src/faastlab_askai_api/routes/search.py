@@ -11,6 +11,7 @@ from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.service import SearchService
 
 from faastlab_askai_api.middleware.principal import get_principal
+from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_api.routes.ask import _require_byok_if_configured
 
 router = APIRouter(tags=["search"])
@@ -20,7 +21,7 @@ _service = SearchService()
 @router.post("/search", response_model=SearchResult)
 async def search(
     body: SearchRequest,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_active_trial_or_subscription),
 ) -> SearchResult:
     _require_byok_if_configured()
     filters = _build_filters(body.filters)

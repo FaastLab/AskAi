@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { listSessions } from "../lib/api";
+import { clearAuth, loadAuth } from "../lib/auth";
 
 const MIN_REFETCH_INTERVAL_MS = 5000;
 
@@ -68,6 +69,34 @@ export function Sidebar() {
           </svg>
           Documents
         </NavLink>
+        <NavLink
+          to="/validator"
+          className={({ isActive }) =>
+            `${navBase} ${isActive ? navActive : navInactive}`
+          }
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          Validator
+        </NavLink>
+        {loadAuth()?.user.role === "owner" && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `${navBase} ${isActive ? navActive : navInactive}`
+            }
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            Admin
+          </NavLink>
+        )}
       </nav>
 
       {onChat && (
@@ -103,9 +132,73 @@ export function Sidebar() {
 
       {!onChat && <div className="flex-1" />}
 
-      <div className="text-xs text-ink-500 border-t border-slate-200 pt-3">
-        FaastLab AskAi · v0.1
+      <div className="border-t border-slate-200 pt-3 space-y-2">
+        <AuthFooter />
+        <div className="text-xs text-ink-500">FaastLab AskAi · v0.1</div>
       </div>
     </aside>
+  );
+}
+
+
+function AuthFooter() {
+  const navigate = useNavigate();
+  const auth = loadAuth();
+
+  if (!auth) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          to="/login"
+          className="text-xs text-ink-700 underline hover:text-ink-900"
+        >
+          Sign in
+        </Link>
+        <Link
+          to="/signup"
+          className="text-xs rounded bg-ink-900 text-white px-2 py-1 hover:bg-ink-700"
+        >
+          Start trial
+        </Link>
+      </div>
+    );
+  }
+
+  function onLogout() {
+    clearAuth();
+    navigate("/login", { replace: true });
+  }
+
+  const trialDays = auth.user.trial_remaining_days;
+  return (
+    <div>
+      <div className="text-xs font-medium text-ink-900 truncate" title={auth.user.email}>
+        {auth.user.full_name || auth.user.email}
+      </div>
+      <div className="text-[11px] text-ink-500 truncate" title={auth.user.tenant_name}>
+        {auth.user.tenant_name}
+      </div>
+      {trialDays != null && (
+        <div
+          className={
+            "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] " +
+            (trialDays <= 3
+              ? "bg-amber-100 text-amber-900"
+              : "bg-emerald-100 text-emerald-900")
+          }
+          title="Trial remaining"
+        >
+          {trialDays === 0
+            ? "Trial expired"
+            : `Trial · ${trialDays}d left`}
+        </div>
+      )}
+      <button
+        onClick={onLogout}
+        className="mt-2 block text-xs text-ink-500 underline hover:text-ink-900"
+      >
+        Sign out
+      </button>
+    </div>
   );
 }

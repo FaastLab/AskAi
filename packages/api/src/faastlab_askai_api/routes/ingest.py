@@ -19,6 +19,7 @@ from faastlab_askai_indexing.parsers.router import detect_content_type
 from faastlab_askai_indexing.pipeline import IngestionPipeline
 
 from faastlab_askai_api.middleware.principal import get_principal
+from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def _friendly(exc: BaseException) -> str:
 async def ingest_upload(
     file: UploadFile = File(...),
     title: str | None = Form(None),
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_active_trial_or_subscription),
 ) -> IngestUploadResponse:
     """Upload a single document — synchronous ingest path.
 
