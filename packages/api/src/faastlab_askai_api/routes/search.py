@@ -10,6 +10,7 @@ from faastlab_askai_core.schemas.chunk import ChunkWithScore
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.service import SearchService
 
+from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import get_principal
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_api.routes.ask import _require_byok_if_configured
@@ -31,6 +32,26 @@ async def search(
         k=body.k,
         filters=filters,
     )
+
+    await record_action(
+        principal=principal,
+        action="search",
+        resource="/v1/search",
+        query=body.query,
+        response_summary=f"{len(outcome.hits)} hits returned",
+        sources=[
+            {
+                "document_id": str(h.document_id),
+                "chunk_id": str(h.chunk_id),
+                "section_path": h.section_path,
+                "page_number": h.page_number,
+                "score": round(h.score, 3),
+            }
+            for h in outcome.hits[:10]
+        ],
+        latency_ms=outcome.latency_ms,
+    )
+
     return SearchResult(
         query=outcome.query,
         latency_ms=outcome.latency_ms,

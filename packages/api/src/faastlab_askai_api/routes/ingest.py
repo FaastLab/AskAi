@@ -18,6 +18,7 @@ from faastlab_askai_indexing.connectors.base import SourceDocument
 from faastlab_askai_indexing.parsers.router import detect_content_type
 from faastlab_askai_indexing.pipeline import IngestionPipeline
 
+from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import get_principal
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 
@@ -96,6 +97,20 @@ async def ingest_upload(
         status = "failed"
     elif result.skipped:
         status = "skipped"
+
+    await record_action(
+        principal=principal,
+        action="upload",
+        resource="/v1/ingest/upload",
+        query=f"Uploaded \"{filename}\" ({len(data):,} bytes)",
+        response_summary=(
+            f"status={status} · {result.chunks_written} chunks written"
+            + (f" · {result.note}" if result.note else "")
+        ),
+        sources=[{"document_id": str(result.document_id), "filename": filename}],
+        extra={"size_bytes": len(data), "content_type": content_type},
+    )
+
     return IngestUploadResponse(
         status=status,
         document_id=str(result.document_id),

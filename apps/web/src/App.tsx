@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AcceptInvitePage } from "./pages/AcceptInvite";
 import { AdminPage } from "./pages/Admin";
+import { AuditPage } from "./pages/Audit";
 import { ChatPage } from "./pages/Chat";
 import { DocumentsPage } from "./pages/Documents";
 import { LoginPage } from "./pages/Login";
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/documents/:documentId" element={<DocumentsPage />} />
         <Route path="/validator" element={<ValidatorPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/audit" element={<AuditPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/accept" element={<AcceptInvitePage />} />

@@ -15,6 +15,7 @@ from faastlab_askai_core.db import Document, get_sessionmaker
 from faastlab_askai_validators.rule_pack_validator import RulePackValidator
 from faastlab_askai_validators.rule_packs import get_pack, list_packs
 
+from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import get_principal
 from faastlab_askai_api.middleware.trial import (
     require_active_trial_or_subscription,
@@ -129,6 +130,34 @@ async def run_validation(
         document_title=doc.title,
         pack_id=body.pack_id,
     )
+
+    await record_action(
+        principal=principal,
+        action="validate",
+        resource="/v1/validators/run",
+        query=f"Validate \"{doc.title}\" against {report.pack_name}",
+        response_summary=(
+            f"{report.overall.upper()} — score {(report.score*100):.0f}% "
+            f"({report.counts.get('green',0)} green, "
+            f"{report.counts.get('amber',0)} amber, "
+            f"{report.counts.get('red',0)} red)"
+        ),
+        sources=[
+            {
+                "requirement_id": r.requirement_id,
+                "title": r.title,
+                "verdict": r.verdict,
+                "citation": r.citation,
+            }
+            for r in report.requirements
+        ],
+        latency_ms=report.latency_ms,
+        extra={
+            "pack_id": report.pack_id,
+            "document_id": report.document_id,
+        },
+    )
+
     return ValidateReportOut(
         pack_id=report.pack_id,
         pack_name=report.pack_name,

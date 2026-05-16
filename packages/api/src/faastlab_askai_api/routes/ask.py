@@ -18,6 +18,7 @@ from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.schemas.search import AskRequest, AskResponse
 from faastlab_askai_search.filters import SearchFilters
 
+from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import get_principal
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 
@@ -68,6 +69,32 @@ async def ask(
         session_id=body.session_id,
         filters=filters,
     )
+
+    # Compliance audit: capture the question, a summary of the answer,
+    # and the citations so auditors can replay what the system said.
+    await record_action(
+        principal=principal,
+        action="ask",
+        resource="/v1/ask",
+        query=body.query,
+        response_summary=outcome.answer[:600],
+        sources=[
+            {
+                "document_title": c.document_title,
+                "document_id": str(c.document_id),
+                "chunk_id": str(c.chunk_id),
+                "page_number": c.page_number,
+                "section_path": c.section_path,
+            }
+            for c in outcome.citations
+        ],
+        latency_ms=outcome.total_latency_ms,
+        extra={
+            "confidence": outcome.confidence,
+            "session_id": str(outcome.session_id),
+        },
+    )
+
     return AskResponse(
         answer=outcome.answer,
         citations=outcome.citations,

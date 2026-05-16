@@ -44,6 +44,7 @@ from faastlab_askai_api.middleware.principal import (
 from faastlab_askai_api.routes import (
     admin,
     ask,
+    audit,
     auth,
     config as config_route,
     documents,
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/v1")
     app.include_router(admin.router, prefix="/v1")
     app.include_router(admin.acceptance_router, prefix="/v1")
+    app.include_router(audit.router, prefix="/v1")
     app.include_router(tenants.router, prefix="/v1")
     app.include_router(documents.router, prefix="/v1")
     app.include_router(ingest.router, prefix="/v1")

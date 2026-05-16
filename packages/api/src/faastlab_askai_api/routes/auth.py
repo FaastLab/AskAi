@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.config import get_settings
-from faastlab_askai_core.db import Tenant, User, get_sessionmaker
+from faastlab_askai_core.db import AuditLog, Tenant, User, get_sessionmaker
 
 from faastlab_askai_api.middleware.principal import get_principal, mint_jwt
 from faastlab_askai_api.security import (
@@ -143,6 +143,12 @@ async def signup(body: SignupRequest) -> AuthResponse:
             "signup: tenant=%s user=%s plan=trial expires=%s",
             slug, user.email, trial_until,
         )
+        await _audit_event(
+            tenant_id=tenant.id,
+            user_id=str(user.id),
+            action="signup",
+            summary=f"New workspace '{tenant.name}' (trial expires {trial_until})",
+        )
         return _auth_response(user, tenant)
 
 
@@ -172,6 +178,15 @@ async def login(body: LoginRequest, request: Request) -> AuthResponse:
         user.last_login_at = datetime.now(timezone.utc)
         await session.commit()
         log.info("login: tenant=%s user=%s", tenant.slug, user.email)
+        await _audit_event(
+            tenant_id=tenant.id,
+            user_id=str(user.id),
+            action="login",
+            summary=(
+                f"Login from {request.client.host if request.client else 'unknown'} "
+                f"as {user.email}"
+            ),
+        )
         return _auth_response(user, tenant)
 
 
@@ -257,6 +272,39 @@ def _login_failed(request: Request, *, reason: str = "bad credentials") -> None:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="invalid email or password",
     )
+
+
+async def _audit_event(
+    *,
+    tenant_id,  # UUID
+    user_id: str,
+    action: str,
+    summary: str,
+) -> None:
+    """Inline audit write for auth events (signup, login, accept-invite).
+
+    We can't use the route-level audit helper here because that wants a
+    Principal — and Principal isn't built yet at signup/login time.
+    Best-effort: any DB failure is swallowed.
+    """
+    from sqlalchemy import insert
+
+    try:
+        async with get_sessionmaker()() as session:
+            await session.execute(
+                insert(AuditLog).values(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    action=action,
+                    resource="/v1/auth",
+                    response_summary=summary,
+                    sources={"items": []},
+                    extra={},
+                )
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("audit: failed to record auth event %s for %s", action, user_id)
 
 
 def _slugify(name: str) -> str:

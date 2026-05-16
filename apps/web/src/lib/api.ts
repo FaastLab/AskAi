@@ -173,6 +173,66 @@ export async function runValidation(body: {
 }
 
 // ----------------------------------------------------------------------------
+// Audit trail (owner/admin only)
+// ----------------------------------------------------------------------------
+
+export type AuditEntry = {
+  id: number;
+  user_id: string;
+  user_email: string | null;
+  action: string;
+  resource: string | null;
+  query: string | null;
+  response_summary: string | null;
+  latency_ms: number | null;
+  created_at: string;
+  source_count: number;
+};
+
+export type AuditEntryDetail = AuditEntry & {
+  sources: Array<Record<string, unknown>>;
+  extra: Record<string, unknown>;
+};
+
+export type AuditPage = {
+  total: number;
+  items: AuditEntry[];
+};
+
+export async function listAudit(opts?: {
+  action?: string;
+  user_id?: string;
+  q?: string;
+  days?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<AuditPage> {
+  const params = new URLSearchParams();
+  if (opts?.action) params.set("action", opts.action);
+  if (opts?.user_id) params.set("user_id", opts.user_id);
+  if (opts?.q) params.set("q", opts.q);
+  if (opts?.days !== undefined) params.set("days", String(opts.days));
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  const r = await fetch(`/v1/audit${qs ? "?" + qs : ""}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return { total: 0, items: [] };
+  return (await r.json()) as AuditPage;
+}
+
+export async function getAuditEntry(id: number): Promise<AuditEntryDetail | null> {
+  const r = await fetch(`/v1/audit/${id}`, { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as AuditEntryDetail;
+}
+
+export function auditCsvUrl(days = 30): string {
+  return `/v1/audit.csv?days=${days}`;
+}
+
+// ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------
 
