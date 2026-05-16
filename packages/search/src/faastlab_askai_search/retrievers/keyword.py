@@ -36,13 +36,16 @@ class KeywordRetriever:
     async def retrieve(
         self,
         *,
-        tenant_id: UUID,
+        tenant_id: UUID | list[UUID],
         query: str,
         k: int,
         filters: SearchFilters | None = None,
     ) -> list[RetrievedChunk]:
         filters = filters or SearchFilters()
-        clauses, params = _build_filter_clauses(tenant_id, filters)
+        tenant_ids = (
+            list(tenant_id) if isinstance(tenant_id, list) else [tenant_id]
+        )
+        clauses, params = _build_filter_clauses(tenant_ids, filters)
         params["q"] = query
         params["k"] = k
 

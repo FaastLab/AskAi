@@ -16,6 +16,7 @@ from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.db import Document, get_sessionmaker
 from faastlab_askai_core.factory import get_storage
 from faastlab_askai_core.schemas.document import DocumentRead, DocumentSummary
+from faastlab_askai_core.tenancy import visible_tenant_ids
 
 from faastlab_askai_api.middleware.principal import get_principal
 
@@ -40,9 +41,20 @@ async def list_documents(
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> list[DocumentRead]:
+    # "uploads" chip means "only docs THIS tenant uploaded" — never share
+    # uploads from the public corpus tenant. Every other view unions the
+    # caller's tenant with the public regulator corpus.
+    if doc_type == "uploads":
+        tenant_ids = [principal.tenant_id]
+    else:
+        tenant_ids = await visible_tenant_ids(principal.tenant_id)
+
     sm = get_sessionmaker()
     async with sm() as session:
-        stmt = select(Document).where(Document.tenant_id == principal.tenant_id)
+        if len(tenant_ids) == 1:
+            stmt = select(Document).where(Document.tenant_id == tenant_ids[0])
+        else:
+            stmt = select(Document).where(Document.tenant_id.in_(tenant_ids))
         if only_active:
             stmt = stmt.where(Document.is_active.is_(True))
         if doc_type == "uploads":
@@ -61,14 +73,26 @@ async def list_document_counts(
     principal: Principal = Depends(get_principal),
     only_active: bool = Query(True),
 ) -> dict[str, int]:
-    """Return counts per `doc_type` (+ 'uploads' + 'total') for filter chips."""
+    """Return counts per `doc_type` (+ 'uploads' + 'total') for filter chips.
+
+    Counts unioned across the caller's tenant + the public regulator
+    corpus tenant — except for 'uploads', which is strictly the caller's
+    own private uploads.
+    """
     from sqlalchemy import func as sql_func
+
+    tenant_ids = await visible_tenant_ids(principal.tenant_id)
 
     sm = get_sessionmaker()
     async with sm() as session:
+        if len(tenant_ids) == 1:
+            tenant_clause = Document.tenant_id == tenant_ids[0]
+        else:
+            tenant_clause = Document.tenant_id.in_(tenant_ids)
+
         stmt = select(
             Document.doc_type, sql_func.count(Document.id)
-        ).where(Document.tenant_id == principal.tenant_id)
+        ).where(tenant_clause)
         if only_active:
             stmt = stmt.where(Document.is_active.is_(True))
         stmt = stmt.group_by(Document.doc_type)
@@ -76,6 +100,9 @@ async def list_document_counts(
         per_type: dict[str, int] = {
             (dt or "_untyped"): int(n) for dt, n in rows.all()
         }
+
+        # 'uploads' count is ALWAYS scoped to the caller's tenant —
+        # public regulator docs aren't "your uploads" even if union'd.
         upload_row = await session.execute(
             select(sql_func.count(Document.id)).where(
                 (Document.tenant_id == principal.tenant_id)
@@ -95,12 +122,13 @@ async def get_document(
     document_id: UUID,
     principal: Principal = Depends(get_principal),
 ) -> DocumentRead:
+    tenant_ids = await visible_tenant_ids(principal.tenant_id)
     sm = get_sessionmaker()
     async with sm() as session:
         result = await session.execute(
             select(Document).where(
                 (Document.id == document_id)
-                & (Document.tenant_id == principal.tenant_id)
+                & (Document.tenant_id.in_(tenant_ids))
             )
         )
         doc = result.scalar_one_or_none()
@@ -122,12 +150,13 @@ async def download_document_file(
     not owned by the caller's tenant. Returns 404 if the document was
     indexed without persisting the original (storage_key is null).
     """
+    tenant_ids = await visible_tenant_ids(principal.tenant_id)
     sm = get_sessionmaker()
     async with sm() as session:
         result = await session.execute(
             select(Document).where(
                 (Document.id == document_id)
-                & (Document.tenant_id == principal.tenant_id)
+                & (Document.tenant_id.in_(tenant_ids))
             )
         )
         doc = result.scalar_one_or_none()
@@ -175,12 +204,13 @@ async def get_document_summary(
     document_id: UUID,
     principal: Principal = Depends(get_principal),
 ) -> DocumentSummary:
+    tenant_ids = await visible_tenant_ids(principal.tenant_id)
     sm = get_sessionmaker()
     async with sm() as session:
         result = await session.execute(
             select(Document).where(
                 (Document.id == document_id)
-                & (Document.tenant_id == principal.tenant_id)
+                & (Document.tenant_id.in_(tenant_ids))
             )
         )
         doc = result.scalar_one_or_none()

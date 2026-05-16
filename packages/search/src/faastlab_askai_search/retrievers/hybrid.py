@@ -38,7 +38,7 @@ class HybridRetriever:
     async def retrieve(
         self,
         *,
-        tenant_id: UUID,
+        tenant_id: UUID | list[UUID],
         query: str,
         k: int,
         filters: SearchFilters | None = None,

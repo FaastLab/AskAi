@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from faastlab_askai_core.factory import get_reranker
+from faastlab_askai_core.tenancy import visible_tenant_ids
 
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.retrievers.base import RetrievedChunk, Retriever
@@ -65,10 +66,20 @@ class SearchService:
         query: str,
         k: int = 10,
         filters: SearchFilters | None = None,
+        include_public_corpus: bool = True,
     ) -> SearchOutcome:
         started = perf_counter()
+        # Resolve which tenants the caller can read across: their own,
+        # plus the configured public regulator corpus tenant (if any and
+        # the caller opted in). Single-tenant deployments degrade to the
+        # original single-tenant behaviour automatically.
+        tenant_ids: UUID | list[UUID]
+        if include_public_corpus:
+            tenant_ids = await visible_tenant_ids(tenant_id)
+        else:
+            tenant_ids = [tenant_id]
         retrieved = await self._retriever.retrieve(
-            tenant_id=tenant_id,
+            tenant_id=tenant_ids,
             query=query,
             k=max(self._retrieve_k, k * 3),
             filters=filters,

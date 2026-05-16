@@ -129,6 +129,11 @@ class Settings(BaseSettings):
 
     # ---- Tenancy ----
     default_tenant: str = "demo-public"
+    # The tenant whose documents are considered "public regulator corpus" —
+    # every signed-in tenant gets read access to these docs (FCA Handbook,
+    # HMRC manuals, watcher events) IN ADDITION to their own private uploads.
+    # Set to None or empty to disable the shared-corpus union (single-tenant mode).
+    public_corpus_tenant_slug: str | None = "demo-public"
 
     # ---- BYOK (bring your own LLM key) ----
     # When True, /v1/ask and /v1/search require an X-OpenAI-API-Key header

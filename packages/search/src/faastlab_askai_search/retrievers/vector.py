@@ -42,7 +42,7 @@ class VectorRetriever:
     async def retrieve(
         self,
         *,
-        tenant_id: UUID,
+        tenant_id: UUID | list[UUID],
         query: str,
         k: int,
         filters: SearchFilters | None = None,
@@ -50,7 +50,10 @@ class VectorRetriever:
         filters = filters or SearchFilters()
         embedding = await self._embeddings.embed(query)
 
-        clauses, params = _build_filter_clauses(tenant_id, filters)
+        tenant_ids = (
+            list(tenant_id) if isinstance(tenant_id, list) else [tenant_id]
+        )
+        clauses, params = _build_filter_clauses(tenant_ids, filters)
         params["query_embedding"] = embedding
         params["k"] = k
 
@@ -84,10 +87,16 @@ class VectorRetriever:
 
 
 def _build_filter_clauses(
-    tenant_id: UUID, filters: SearchFilters
+    tenant_ids: list[UUID], filters: SearchFilters
 ) -> tuple[str, dict[str, Any]]:
-    clauses = ["c.tenant_id = :tenant_id"]
-    params: dict[str, Any] = {"tenant_id": tenant_id}
+    # Accept one tenant or many — the latter is how we union a caller's
+    # private tenant with the public regulator corpus tenant.
+    if len(tenant_ids) == 1:
+        clauses = ["c.tenant_id = :tenant_id"]
+        params: dict[str, Any] = {"tenant_id": tenant_ids[0]}
+    else:
+        clauses = ["c.tenant_id = ANY(:tenant_ids)"]
+        params = {"tenant_ids": tenant_ids}
 
     if filters.only_active:
         clauses.append("d.is_active = true")

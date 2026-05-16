@@ -366,6 +366,7 @@ function BrowseList({
               {d.title}
             </div>
             <div className="mt-1 text-xs text-ink-500 flex items-center gap-2 flex-wrap">
+              {sourceBadge(d)}
               {d.doc_type && (
                 <span className="rounded bg-slate-200 px-1.5 py-0.5 uppercase tracking-wide text-[10px]">
                   {d.doc_type}
@@ -384,6 +385,22 @@ function BrowseList({
         </li>
       ))}
     </ul>
+  );
+}
+
+function sourceBadge(d: DocumentRecord) {
+  const isUpload = d.source_uri.startsWith("upload://");
+  if (isUpload) {
+    return (
+      <span className="rounded bg-indigo-100 text-indigo-900 px-1.5 py-0.5 text-[10px] font-medium">
+        Your firm
+      </span>
+    );
+  }
+  return (
+    <span className="rounded bg-emerald-100 text-emerald-900 px-1.5 py-0.5 text-[10px] font-medium">
+      Regulator
+    </span>
   );
 }
 
