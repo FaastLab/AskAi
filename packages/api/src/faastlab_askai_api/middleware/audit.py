@@ -23,6 +23,23 @@ if TYPE_CHECKING:
     from starlette.responses import Response
     from starlette.types import ASGIApp
 
+# Paths where the route handler writes a RICH audit row (with the
+# question text, response summary, citations, validator verdicts, etc).
+# The middleware should NOT also write a bare row for these — it'd just
+# be noise alongside the meaningful one.
+_RICH_AUDITED_PATHS = (
+    "/v1/ask",
+    "/v1/search",
+    "/v1/validators/run",
+    "/v1/ingest/upload",
+    "/v1/auth/signup",
+    "/v1/auth/login",
+    "/v1/auth/accept-invite",
+)
+
+# Paths the middleware DOES log on its own — read-only listings and
+# document fetches, where the activity is interesting but there's no
+# question/answer pair to capture.
 _AUDITED_PATH_PREFIXES = (
     "/v1/ingest",
     "/v1/search",
@@ -75,4 +92,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 
 def _should_audit(path: str) -> bool:
+    # Skip paths the route layer audits with rich detail — avoids the
+    # "status=200, query_string=''" noise rows the user was seeing.
+    if path in _RICH_AUDITED_PATHS:
+        return False
     return any(path.startswith(p) for p in _AUDITED_PATH_PREFIXES)

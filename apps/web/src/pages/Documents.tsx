@@ -157,6 +157,11 @@ export function DocumentsPage() {
     setSearchBusy(true);
     setSearchError(null);
     setSubmittedQuery(q);
+    // Clear the previously-selected document so the right pane goes back
+    // to the "select a hit" empty state. Users were confused seeing a
+    // stale doc's View internal / source / summary while a fresh search
+    // was running on the left.
+    setSelectedId(null);
     try {
       const result = await searchChunks(q, { k: 12, onlyActive: true });
       if (ctl.signal.aborted) return;
@@ -185,6 +190,7 @@ export function DocumentsPage() {
     setHits([]);
     setLatencyMs(null);
     setSearchError(null);
+    setSelectedId(null);
   }
 
   const selectedDoc = selectedId ? docsById.get(selectedId) ?? null : null;
