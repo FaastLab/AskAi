@@ -29,7 +29,15 @@ async def list_documents(
     *,
     principal: Principal = Depends(get_principal),
     only_active: bool = Query(True, description="Exclude superseded docs by default"),
-    limit: int = Query(50, ge=1, le=500),
+    doc_type: str | None = Query(
+        None,
+        description=(
+            "Filter by doc_type — typically the regulator code "
+            "(fca/boe/pra/hmrc/ico/tpr). Special value 'uploads' returns "
+            "user-uploaded docs only (source_uri starts with upload://)."
+        ),
+    ),
+    limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> list[DocumentRead]:
     sm = get_sessionmaker()
@@ -37,10 +45,49 @@ async def list_documents(
         stmt = select(Document).where(Document.tenant_id == principal.tenant_id)
         if only_active:
             stmt = stmt.where(Document.is_active.is_(True))
+        if doc_type == "uploads":
+            stmt = stmt.where(Document.source_uri.like("upload://%"))
+        elif doc_type:
+            stmt = stmt.where(Document.doc_type == doc_type.lower())
         stmt = stmt.order_by(desc(Document.created_at)).limit(limit).offset(offset)
         rows = await session.execute(stmt)
         docs = rows.scalars().all()
     return [DocumentRead.model_validate(d) for d in docs]
+
+
+@router.get("/documents/_counts")
+async def list_document_counts(
+    *,
+    principal: Principal = Depends(get_principal),
+    only_active: bool = Query(True),
+) -> dict[str, int]:
+    """Return counts per `doc_type` (+ 'uploads' + 'total') for filter chips."""
+    from sqlalchemy import func as sql_func
+
+    sm = get_sessionmaker()
+    async with sm() as session:
+        stmt = select(
+            Document.doc_type, sql_func.count(Document.id)
+        ).where(Document.tenant_id == principal.tenant_id)
+        if only_active:
+            stmt = stmt.where(Document.is_active.is_(True))
+        stmt = stmt.group_by(Document.doc_type)
+        rows = await session.execute(stmt)
+        per_type: dict[str, int] = {
+            (dt or "_untyped"): int(n) for dt, n in rows.all()
+        }
+        upload_row = await session.execute(
+            select(sql_func.count(Document.id)).where(
+                (Document.tenant_id == principal.tenant_id)
+                & Document.source_uri.like("upload://%")
+            )
+        )
+        per_type["uploads"] = int(upload_row.scalar_one() or 0)
+        per_type["total"] = sum(
+            v for k, v in per_type.items()
+            if k not in ("uploads", "total")
+        )
+    return per_type
 
 
 @router.get("/documents/{document_id}", response_model=DocumentRead)

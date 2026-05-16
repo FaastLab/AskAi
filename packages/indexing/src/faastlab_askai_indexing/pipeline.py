@@ -239,16 +239,29 @@ class IngestionPipeline:
             doc = DbDocument(
                 id=uuid4(),
                 tenant_id=self._tenant_id,
-                title=source.filename or source.source_uri,
+                # Prefer the human-readable title supplied by the connector
+                # (e.g. the watcher's RSS entry title) over the filename
+                # (which for slug-based URLs is a placeholder).
+                title=source.title or source.filename or source.source_uri,
                 source_uri=source.source_uri,
             )
             session.add(doc)
+        elif source.title and doc.title in (None, "", source.filename, source.source_uri):
+            # On re-ingest, upgrade a placeholder title if the connector now
+            # supplies a better one. Don't overwrite a title the user set.
+            doc.title = source.title
 
         doc.content_hash = digest
         doc.size_bytes = len(source.data)
         doc.storage_key = f"tenants/{self._tenant_id}/docs/{doc.id}"
         if source.metadata:
             doc.metadata_ = {**(doc.metadata_ or {}), **source.metadata}
+            # Honor doc_type passed via metadata (used by the watcher to tag
+            # each ingested item with its regulator code: fca/boe/pra/hmrc/...
+            # so the Documents UI can filter by chip).
+            md_doc_type = source.metadata.get("doc_type")
+            if md_doc_type and not doc.doc_type:
+                doc.doc_type = str(md_doc_type)[:64]
         await session.flush()
         return doc, was_update
 

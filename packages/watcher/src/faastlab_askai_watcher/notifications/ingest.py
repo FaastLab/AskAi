@@ -101,15 +101,22 @@ class IngestNotifier(Notifier):
                 data=data,
                 filename=filename,
                 content_type=content_type,
+                # Pass the RSS-supplied title so the Documents UI shows
+                # "Consultation paper CP1/26" rather than "watcher_event.html".
+                title=ev.title or None,
                 metadata={
-                    "watcher_event_id": None,  # filled after we know it
                     "regulator": ev.regulator,
+                    # `doc_type` is the column the Documents UI filters on
+                    # and shows as a category chip; keep it == regulator
+                    # code for watcher-ingested docs.
+                    "doc_type": ev.regulator,
                     "event_type": ev.event_type,
                     "published_at": (
                         ev.published_at.isoformat() if ev.published_at else None
                     ),
                     "title_from_feed": ev.title,
                     "size_bytes": len(data),
+                    "source": "watcher",
                 },
             )
 

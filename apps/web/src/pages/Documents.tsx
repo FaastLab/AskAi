@@ -4,12 +4,26 @@ import { Sidebar } from "../components/Sidebar";
 import {
   documentFileUrl,
   getConfig,
+  listDocumentCounts,
   listDocuments,
   searchChunks,
   type DocumentRecord,
   type PublicConfig,
   type SearchHit,
 } from "../lib/api";
+
+// Stable ordering for the regulator chips. Anything not listed here falls
+// back to "Other". `uploads` is the user's own files; `all` shows everything.
+const CHIPS: { key: string; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "fca", label: "FCA" },
+  { key: "boe", label: "BoE" },
+  { key: "pra", label: "PRA" },
+  { key: "hmrc", label: "HMRC" },
+  { key: "tpr", label: "TPR" },
+  { key: "ico", label: "ICO" },
+  { key: "uploads", label: "Your uploads" },
+];
 import { loadSettings } from "../lib/settings";
 
 type Mode = "browse" | "search";
@@ -21,6 +35,8 @@ export function DocumentsPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [docs, setDocs] = useState<DocumentRecord[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [activeChip, setActiveChip] = useState<string>("all");
 
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
@@ -39,16 +55,30 @@ export function DocumentsPage() {
     getConfig().then(setConfig);
   }, []);
 
+  // Fetch the full document set once, filter client-side by chip. This
+  // keeps `docsById` complete so search hits from other regulators still
+  // resolve to a known document — only the browse list is narrowed.
   useEffect(() => {
     let cancelled = false;
     setDocsLoading(true);
-    listDocuments({ onlyActive: true, limit: 200 })
+    listDocuments({ onlyActive: true, limit: 500 })
       .then((d) => {
         if (!cancelled) setDocs(d);
       })
       .finally(() => {
         if (!cancelled) setDocsLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Counts power the chip badges (and tell us which chips to disable).
+  useEffect(() => {
+    let cancelled = false;
+    listDocumentCounts().then((c) => {
+      if (!cancelled) setCounts(c);
+    });
     return () => {
       cancelled = true;
     };
@@ -78,6 +108,16 @@ export function DocumentsPage() {
     for (const d of docs) map.set(d.id, d);
     return map;
   }, [docs]);
+
+  // Client-side filter applied to the BROWSE list only — search hits
+  // still resolve against the full `docsById` map above.
+  const filteredDocs = useMemo(() => {
+    if (activeChip === "all") return docs;
+    if (activeChip === "uploads") {
+      return docs.filter((d) => d.source_uri.startsWith("upload://"));
+    }
+    return docs.filter((d) => d.doc_type === activeChip);
+  }, [docs, activeChip]);
 
   // Group search hits by document, preserving best-rank ordering.
   const hitsByDoc = useMemo(() => {
@@ -160,7 +200,11 @@ export function DocumentsPage() {
               <p className="text-xs text-ink-500">
                 {docsLoading
                   ? "Loading documents…"
-                  : `${docs.length} document${docs.length === 1 ? "" : "s"} indexed`}
+                  : activeChip === "all"
+                    ? `${docs.length} document${docs.length === 1 ? "" : "s"} indexed`
+                    : `${filteredDocs.length} of ${docs.length} document${
+                        docs.length === 1 ? "" : "s"
+                      } · filter: ${activeChip.toUpperCase()}`}
                 {config?.default_tenant && ` · tenant: ${config.default_tenant}`}
               </p>
             </div>
@@ -206,12 +250,51 @@ export function DocumentsPage() {
           )}
         </header>
 
+        {/* Category chips — regulator filter */}
+        <div className="border-b border-slate-200 bg-white px-6 py-2 flex items-center gap-2 overflow-x-auto">
+          {CHIPS.map((c) => {
+            const count =
+              c.key === "all" ? counts.total ?? 0 : counts[c.key] ?? 0;
+            const active = activeChip === c.key;
+            const disabled = c.key !== "all" && count === 0;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                disabled={disabled}
+                onClick={() => setActiveChip(c.key)}
+                className={
+                  "shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition " +
+                  (active
+                    ? "bg-ink-900 text-white"
+                    : disabled
+                      ? "bg-slate-100 text-ink-400 cursor-not-allowed"
+                      : "bg-white border border-slate-300 text-ink-700 hover:bg-slate-100")
+                }
+                title={disabled ? "No documents in this category yet" : ""}
+              >
+                {c.label}
+                <span
+                  className={
+                    "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums " +
+                    (active
+                      ? "bg-white/20"
+                      : "bg-slate-200 text-ink-700")
+                  }
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="flex-1 flex min-h-0">
           {/* Left: list */}
           <div className="w-2/5 max-w-md border-r border-slate-200 overflow-y-auto">
             {mode === "browse" ? (
               <BrowseList
-                docs={docs}
+                docs={filteredDocs}
                 loading={docsLoading}
                 selectedId={selectedId}
                 onSelect={setSelectedId}

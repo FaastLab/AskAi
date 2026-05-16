@@ -193,16 +193,27 @@ export async function uploadDocument(
 export async function listDocuments(opts?: {
   onlyActive?: boolean;
   limit?: number;
+  docType?: string | null;
 }): Promise<DocumentRecord[]> {
   const params = new URLSearchParams();
   if (opts?.onlyActive !== undefined) params.set("only_active", String(opts.onlyActive));
   if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts?.docType) params.set("doc_type", opts.docType);
   const qs = params.toString();
   const r = await fetch(`/v1/documents${qs ? "?" + qs : ""}`, {
     headers: authHeaders(loadSettings()),
   });
   if (!r.ok) return [];
   return (await r.json()) as DocumentRecord[];
+}
+
+/** Counts per category (regulator code) + 'uploads' + 'total' for chip badges. */
+export async function listDocumentCounts(): Promise<Record<string, number>> {
+  const r = await fetch("/v1/documents/_counts", {
+    headers: authHeaders(loadSettings()),
+  });
+  if (!r.ok) return {};
+  return (await r.json()) as Record<string, number>;
 }
 
 /** URL for downloading / previewing the original document file. */

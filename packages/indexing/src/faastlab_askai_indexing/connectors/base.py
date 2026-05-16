@@ -15,6 +15,11 @@ class SourceDocument:
     data: bytes
     filename: str | None = None
     content_type: str | None = None
+    # Human-readable document title. When set, the pipeline uses this in
+    # preference to `filename` for `documents.title`. Used by the watcher
+    # to keep regulator RSS titles ("Consultation paper CP1/26") instead
+    # of the URL-derived placeholder filename.
+    title: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
