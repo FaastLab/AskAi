@@ -52,6 +52,11 @@ class OpenAIEmbeddings:
 
     def _build_client(self, *, api_key: str | None) -> _AsyncOpenAIType:
         s = self._settings
+        # Defence-in-depth: BYOK middleware already strips non-ASCII, but
+        # a bad value in `OPENAI_API_KEY` env or stale call paths would
+        # still break httpx header encoding. Sanitise here too.
+        if api_key is not None:
+            api_key = "".join(c for c in api_key.strip() if 32 <= ord(c) < 127) or None
         if s.embeddings_provider == "azure":
             if not (s.azure_openai_endpoint and (api_key or s.azure_openai_api_key)):
                 raise EmbeddingError(

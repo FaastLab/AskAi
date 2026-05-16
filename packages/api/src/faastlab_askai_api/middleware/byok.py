@@ -35,12 +35,26 @@ _COHERE_HEADERS = ("x-cohere-api-key", "x-api-key-cohere")
 
 
 def _pick(headers, names: tuple[str, ...]) -> str | None:
+    """Extract an API key header and sanitise it for HTTP-layer safety.
+
+    Pasted keys often pick up invisible non-ASCII characters (NBSP,
+    smart quotes, zero-width spaces, BOM) from email/LinkedIn/PDF.
+    These survive the `.strip()` but break the downstream httpx layer
+    with `'ascii' codec can't encode character '\\xc2'` when the OpenAI
+    client tries to put the value into the Authorization header.
+
+    Real API keys are always printable-ASCII; anything else is a paste
+    artefact, so we drop it silently.
+    """
     for name in names:
         value = headers.get(name)
-        if value:
-            stripped = value.strip()
-            if stripped:
-                return stripped
+        if not value:
+            continue
+        cleaned = "".join(
+            c for c in value.strip() if 32 <= ord(c) < 127
+        )
+        if cleaned:
+            return cleaned
     return None
 
 
