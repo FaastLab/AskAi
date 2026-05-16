@@ -162,13 +162,17 @@ class Settings(BaseSettings):
     # Per-regulator feed URLs (override if a regulator moves a feed).
     watcher_fca_url: str = "https://www.fca.org.uk/news/rss.xml"
     watcher_boe_url: str = "https://www.bankofengland.co.uk/rss/news"
-    watcher_pra_url: str = (
-        "https://www.bankofengland.co.uk/rss/prudential-regulation/publications"
+    # PRA shares BoE infrastructure; the publications feed covers PRA materials.
+    watcher_pra_url: str = "https://www.bankofengland.co.uk/rss/publications"
+    # FOS doesn't publish a stable RSS — leave blank to skip; a future scrape adapter will fill this.
+    watcher_fos_url: str = ""
+    # TPR + ICO + HMRC all expose gov.uk Atom feeds (the most reliable RSS in UK gov).
+    watcher_tpr_url: str = (
+        "https://www.gov.uk/government/organisations/the-pensions-regulator.atom"
     )
-    watcher_fos_url: str = "https://www.financial-ombudsman.org.uk/rss/news"
-    watcher_tpr_url: str = "https://www.thepensionsregulator.gov.uk/rss/news"
-    # ICO — data protection / GDPR; HMRC — AML supervision, payment services, crypto tax.
-    watcher_ico_url: str = "https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/rss/"
+    watcher_ico_url: str = (
+        "https://www.gov.uk/government/organisations/information-commissioner-s-office.atom"
+    )
     watcher_hmrc_url: str = (
         "https://www.gov.uk/government/organisations/hm-revenue-customs.atom"
     )

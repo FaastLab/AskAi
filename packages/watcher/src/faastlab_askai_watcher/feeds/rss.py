@@ -53,11 +53,12 @@ class RssFeed(FeedSource):
         self.timeout = timeout
 
     async def fetch(self, since: datetime | None = None) -> list[PublicationEvent]:
-        try:
-            raw = await self._fetch_raw()
-        except Exception as exc:  # noqa: BLE001 — we log and return empty
-            log.warning("watcher: %s feed fetch failed: %s", self.regulator, exc)
-            return []
+        # Let the network error propagate — the orchestrator's per-feed
+        # try/except converts it to a `feeds_errored` counter + records
+        # the error against this regulator in the poll outcome. Swallowing
+        # it here makes "0 new events" indistinguishable from "feed broke",
+        # which is exactly what hid the 4 broken regulator URLs.
+        raw = await self._fetch_raw()
 
         # feedparser is CPU-bound enough to be worth running off the loop
         # for large feeds. For small (~50 entries) it doesn't matter but

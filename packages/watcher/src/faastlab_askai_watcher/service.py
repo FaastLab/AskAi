@@ -35,6 +35,25 @@ from faastlab_askai_watcher.notifications import (
 log = logging.getLogger("faastlab_askai.watcher")
 
 
+def _summarise_exc(exc: BaseException) -> str:
+    """One-line error string for the outcome (full trace stays in logs)."""
+    msg = str(exc) or exc.__class__.__name__
+    # First line only — many httpx errors include a "For more information"
+    # MDN URL that's noise for a status summary.
+    return msg.split("\n", 1)[0].strip()
+
+
+@dataclass
+class FeedOutcome:
+    """Per-feed status — what the orchestrator records for each regulator."""
+
+    regulator: str
+    ok: bool
+    fetched: int = 0
+    new: int = 0
+    error: str | None = None
+
+
 @dataclass
 class PollOutcome:
     """Result of one poll cycle — useful for the CLI and metrics later."""
@@ -48,6 +67,7 @@ class PollOutcome:
     notifiers_run: int = 0
     notifier_errors: int = 0
     per_regulator: dict[str, int] = field(default_factory=dict)
+    feeds: list[FeedOutcome] = field(default_factory=list)
 
 
 class WatcherService:
@@ -82,14 +102,24 @@ class WatcherService:
         outcome.feeds_polled = len(feeds)
 
         all_fetched: list[PublicationEvent] = []
+        per_feed_fetched: dict[str, int] = {}
         for feed in feeds:
             try:
                 events = await feed.fetch(since)
             except Exception as exc:  # noqa: BLE001 — keep polling the others
-                log.exception("watcher: %s feed raised: %s", feed.regulator, exc)
+                # Squash the error message to a single line — full traceback
+                # is logged but the outcome only carries the summary.
+                err = _summarise_exc(exc)
+                log.warning("watcher: %s feed failed: %s", feed.regulator, err)
                 outcome.feeds_errored += 1
+                outcome.feeds.append(
+                    FeedOutcome(regulator=feed.regulator, ok=False, error=err)
+                )
                 continue
-            log.info("watcher: fetched %d entries from %s", len(events), feed.regulator)
+            log.info(
+                "watcher: fetched %d entries from %s", len(events), feed.regulator
+            )
+            per_feed_fetched[feed.regulator] = len(events)
             all_fetched.extend(events)
 
         outcome.fetched = len(all_fetched)
@@ -98,10 +128,25 @@ class WatcherService:
         # poll, regardless of feed count.
         new_events = await self._filter_new(all_fetched)
         outcome.new_events = len(new_events)
+        per_feed_new: dict[str, int] = {}
         for ev in new_events:
             outcome.per_regulator[ev.regulator] = (
                 outcome.per_regulator.get(ev.regulator, 0) + 1
             )
+            per_feed_new[ev.regulator] = per_feed_new.get(ev.regulator, 0) + 1
+
+        # Record per-feed outcomes for the feeds that succeeded.
+        for regulator, fetched_n in per_feed_fetched.items():
+            outcome.feeds.append(
+                FeedOutcome(
+                    regulator=regulator,
+                    ok=True,
+                    fetched=fetched_n,
+                    new=per_feed_new.get(regulator, 0),
+                )
+            )
+        # Keep feeds list sorted for predictable CLI output.
+        outcome.feeds.sort(key=lambda f: f.regulator)
 
         # Fan out — every notifier sees every new event. DBNotifier is
         # idempotent via ON CONFLICT, so the order doesn't matter.
@@ -158,6 +203,11 @@ class WatcherService:
                     if ev.external_id not in seen:
                         new.append(ev)
         return new
+
+    @staticmethod
+    def _summarise_exc(exc: BaseException) -> str:
+        """One-liner error for the poll outcome (full trace lives in logs)."""
+        return _summarise_exc(exc)
 
     def _build_default_notifiers(self) -> list[Notifier]:
         settings = get_settings()

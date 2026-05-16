@@ -23,17 +23,27 @@ SUPPORTED_REGULATORS: tuple[str, ...] = (
 
 
 def default_feeds() -> list[FeedSource]:
-    """Return the watcher's default feed set, configured from settings."""
+    """Return the watcher's default feed set, configured from settings.
+
+    Feeds whose URL is blank are skipped — used when a regulator doesn't
+    publish a usable RSS endpoint (currently FOS). A future scrape-based
+    adapter can replace these without touching the orchestrator.
+    """
     s = get_settings()
     ua = s.watcher_user_agent
+    candidates: list[tuple[str, str, dict]] = [
+        ("fca",  s.watcher_fca_url,  {}),
+        ("boe",  s.watcher_boe_url,  {}),
+        ("pra",  s.watcher_pra_url,  {"event_type": "prudential-publication"}),
+        ("fos",  s.watcher_fos_url,  {}),
+        ("tpr",  s.watcher_tpr_url,  {}),
+        ("ico",  s.watcher_ico_url,  {}),
+        ("hmrc", s.watcher_hmrc_url, {}),
+    ]
     return [
-        RssFeed("fca", s.watcher_fca_url, user_agent=ua),
-        RssFeed("boe", s.watcher_boe_url, user_agent=ua),
-        RssFeed("pra", s.watcher_pra_url, user_agent=ua, event_type="prudential-publication"),
-        RssFeed("fos", s.watcher_fos_url, user_agent=ua),
-        RssFeed("tpr", s.watcher_tpr_url, user_agent=ua),
-        RssFeed("ico", s.watcher_ico_url, user_agent=ua),
-        RssFeed("hmrc", s.watcher_hmrc_url, user_agent=ua),
+        RssFeed(reg, url, user_agent=ua, **kwargs)
+        for reg, url, kwargs in candidates
+        if url and url.strip()
     ]
 
 
