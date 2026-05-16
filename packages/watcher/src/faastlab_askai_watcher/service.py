@@ -27,6 +27,7 @@ from faastlab_askai_watcher.feeds.registry import default_feeds, filter_feeds
 from faastlab_askai_watcher.notifications import (
     ConsoleNotifier,
     DBNotifier,
+    IngestNotifier,
     Notifier,
     WebhookNotifier,
 )
@@ -164,6 +165,16 @@ class WatcherService:
             ConsoleNotifier(),
             DBNotifier(tenant_slug=settings.watcher_tenant_slug),
         ]
+        # IngestNotifier runs AFTER DBNotifier so the row exists when we
+        # come back to mark it `ingested=true`. Opt-in: most users want
+        # to inspect events before letting the pipeline crawl the URLs.
+        if settings.watcher_auto_ingest:
+            notifiers.append(
+                IngestNotifier(
+                    tenant_slug=settings.watcher_tenant_slug,
+                    user_agent=settings.watcher_user_agent,
+                )
+            )
         if settings.watcher_webhook_url:
             notifiers.append(
                 WebhookNotifier(

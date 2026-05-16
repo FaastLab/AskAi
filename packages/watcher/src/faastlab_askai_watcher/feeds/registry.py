@@ -17,7 +17,9 @@ from faastlab_askai_watcher.feeds.rss import RssFeed
 
 # Codes are short, lowercase, stable — used as a primary-key fragment in
 # `watcher_events` so renaming one is a migration, not a refactor.
-SUPPORTED_REGULATORS: tuple[str, ...] = ("fca", "boe", "pra", "fos", "tpr")
+SUPPORTED_REGULATORS: tuple[str, ...] = (
+    "fca", "boe", "pra", "fos", "tpr", "ico", "hmrc",
+)
 
 
 def default_feeds() -> list[FeedSource]:
@@ -30,6 +32,8 @@ def default_feeds() -> list[FeedSource]:
         RssFeed("pra", s.watcher_pra_url, user_agent=ua, event_type="prudential-publication"),
         RssFeed("fos", s.watcher_fos_url, user_agent=ua),
         RssFeed("tpr", s.watcher_tpr_url, user_agent=ua),
+        RssFeed("ico", s.watcher_ico_url, user_agent=ua),
+        RssFeed("hmrc", s.watcher_hmrc_url, user_agent=ua),
     ]
 
 

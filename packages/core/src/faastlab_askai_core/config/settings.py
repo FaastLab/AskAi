@@ -167,6 +167,15 @@ class Settings(BaseSettings):
     )
     watcher_fos_url: str = "https://www.financial-ombudsman.org.uk/rss/news"
     watcher_tpr_url: str = "https://www.thepensionsregulator.gov.uk/rss/news"
+    # ICO — data protection / GDPR; HMRC — AML supervision, payment services, crypto tax.
+    watcher_ico_url: str = "https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/rss/"
+    watcher_hmrc_url: str = (
+        "https://www.gov.uk/government/organisations/hm-revenue-customs.atom"
+    )
+    # Auto-ingest: when True, the watcher fetches each new event's URL and
+    # runs it through the ingestion pipeline so it becomes searchable in
+    # the corpus within one poll cycle of being published.
+    watcher_auto_ingest: bool = False
 
     @property
     def cors_origins_list(self) -> list[str]:
