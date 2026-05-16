@@ -58,8 +58,13 @@ class SessionMemory:
         user_id: str,
         question: str,
         answer: str,
+        citations: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Persist one Q/A turn. Creates the row on first call."""
+        """Persist one Q/A turn. Creates the row on first call.
+
+        Citations are stored on the assistant turn so the UI can re-hydrate
+        them when a user re-opens the session from the sidebar.
+        """
         async with self._sessionmaker() as session:
             result = await session.execute(
                 select(ChatSession).where(
@@ -81,6 +86,13 @@ class SessionMemory:
 
             messages: list[dict[str, Any]] = list((row.history or {}).get("messages", []))
             messages.append({"role": "user", "content": question, "ts": now.isoformat()})
-            messages.append({"role": "assistant", "content": answer, "ts": now.isoformat()})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "ts": now.isoformat(),
+                    "citations": citations or [],
+                }
+            )
             row.history = {"messages": messages[-self._max_turns * 2 :]}
             await session.commit()

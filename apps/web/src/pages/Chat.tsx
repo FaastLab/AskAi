@@ -53,6 +53,7 @@ export function ChatPage() {
         s.history.map((m) => ({
           role: m.role,
           content: m.content,
+          citations: m.citations,
         }))
       );
     });

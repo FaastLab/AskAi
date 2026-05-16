@@ -86,6 +86,7 @@ class AskAiService:
             user_id=user_id,
             question=question,
             answer=result.text,
+            citations=[c.model_dump(mode="json") for c in citations],
         )
 
         return AskOutcome(
@@ -158,17 +159,19 @@ class AskAiService:
             len(collected),
             len(full_answer),
         )
+        citation_payload = [c.model_dump(mode="json") for c in citations]
         await self._memory.append(
             tenant_id=tenant_id,
             session_id=session_uuid,
             user_id=user_id,
             question=question,
             answer=full_answer,
+            citations=citation_payload,
         )
         yield {
             "event": "done",
             "session_id": str(session_uuid),
-            "citations": [c.model_dump(mode="json") for c in citations],
+            "citations": citation_payload,
         }
 
     # ---- Internals -------------------------------------------------------

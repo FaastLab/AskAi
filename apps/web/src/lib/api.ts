@@ -393,6 +393,7 @@ export type SessionMessage = {
   role: "user" | "assistant";
   content: string;
   ts?: string;
+  citations?: Citation[];
 };
 
 export type SessionDetail = {
