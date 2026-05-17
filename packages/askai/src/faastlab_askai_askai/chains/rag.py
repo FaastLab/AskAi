@@ -30,7 +30,7 @@ class RagChain:
         llm: LLMAdapter,
         *,
         temperature: float = 0.0,
-        max_tokens: int | None = 700,
+        max_tokens: int | None = 1400,
     ) -> None:
         self._llm = llm
         self._temperature = temperature

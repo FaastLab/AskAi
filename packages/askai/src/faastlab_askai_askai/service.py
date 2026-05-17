@@ -47,7 +47,7 @@ class AskAiService:
         chain: RagChain | None = None,
         llm: LLMAdapter | None = None,
         memory: SessionMemory | None = None,
-        retrieve_k: int = 8,
+        retrieve_k: int = 16,
     ) -> None:
         self._search = search or SearchService()
         self._llm = llm or get_llm()
