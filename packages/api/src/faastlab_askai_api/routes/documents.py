@@ -173,8 +173,41 @@ async def download_document_file(
         data = await storage.get(doc.storage_key)
     except FileNotFoundError as exc:
         log.warning("storage object missing for %s (%s)", doc.id, doc.storage_key)
-        raise HTTPException(status_code=404, detail="stored file not found") from exc
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Original file not found in storage. This usually means "
+                "the doc was ingested when the storage backend was full "
+                "or unreachable. Re-ingest the document to fix."
+            ),
+        ) from exc
     except Exception as exc:  # noqa: BLE001
+        # MinIO / S3 / Azure Blob all signal missing-object via their own
+        # exception classes (botocore ClientError with code NoSuchKey,
+        # Azure ResourceNotFoundError, etc). Detect those by message
+        # rather than importing every backend's error classes.
+        message = str(exc).lower()
+        if any(
+            sig in message
+            for sig in (
+                "nosuchkey",
+                "not found",
+                "no such file",
+                "no such object",
+                "404",
+            )
+        ):
+            log.warning(
+                "storage object missing for %s (%s): %s",
+                doc.id, doc.storage_key, exc,
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Original file not found in storage. Re-ingest the "
+                    "document to fix."
+                ),
+            ) from exc
         log.exception("storage read failed for %s", doc.id)
         raise HTTPException(
             status_code=500, detail=f"failed to fetch from storage: {exc}"
@@ -185,14 +218,21 @@ async def download_document_file(
         # Fall back to metadata if the indexer recorded it; otherwise octet-stream.
         content_type = (doc.metadata_ or {}).get("content_type") or "application/octet-stream"
 
-    # RFC 5987-style filename* to handle non-ASCII titles cleanly.
+    # RFC 5987-style filename* carries full Unicode via percent-encoding.
+    # The bare `filename="..."` fallback MUST be Latin-1-safe — em-dashes
+    # and curly quotes in regulator titles break Starlette's header
+    # encoder otherwise. So we ship two filenames: an ASCII-only safe
+    # fallback and the full Unicode UTF-8 percent-encoded form.
     safe = doc.title.replace('"', "").replace("\r", " ").replace("\n", " ")
+    ascii_safe = "".join(c if 32 <= ord(c) < 127 else "_" for c in safe) or "document"
     quoted = quote(safe, safe="")
     return StreamingResponse(
         io.BytesIO(data),
         media_type=content_type,
         headers={
-            "Content-Disposition": f"inline; filename=\"{safe}\"; filename*=UTF-8''{quoted}",
+            "Content-Disposition": (
+                f"inline; filename=\"{ascii_safe}\"; filename*=UTF-8''{quoted}"
+            ),
             "Cache-Control": "private, max-age=300",
             "Content-Length": str(len(data)),
         },
