@@ -168,6 +168,17 @@ ui:  ## Run the Vite + React chat UI on :3000 (in a third terminal)
 demo-corpus:  ## Ingest the UK FinReg demo corpus into demo-public tenant
 	$(UV) run python -m corpus.uk_finreg.loader $${NO_SUMMARISE:+--no-summarise}
 
+.PHONY: ingest-handbooks
+ingest-handbooks:  ## Bulk-ingest regulator handbooks listed in handbook_sources.yaml
+	$(UV) run python -m corpus.uk_finreg.handbook_ingester \
+	  $${REGULATOR:+--regulator $$REGULATOR} \
+	  $${DRY_RUN:+--dry-run} \
+	  $${FORCE:+--force}
+
+.PHONY: ingest-handbooks-dry
+ingest-handbooks-dry:  ## Print what would be ingested (no fetches, no embeddings)
+	$(UV) run python -m corpus.uk_finreg.handbook_ingester --dry-run
+
 # ---------- Watcher (regulator change feed) ----------
 .PHONY: watcher-poll
 watcher-poll:  ## One-shot poll of regulator feeds: make watcher-poll [REGULATOR=fca]
