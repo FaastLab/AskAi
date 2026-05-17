@@ -48,14 +48,26 @@ class HybridRetriever:
         # downstream reranker isn't fed 75+ candidates on CPU.
         per_retriever_k = max(k * 2, 12)
 
-        vector_hits, keyword_hits = await asyncio.gather(
+        # Run both retrievers independently so one failure doesn't kill the
+        # whole result. Common case: keyword retriever's websearch_to_tsquery
+        # rejects a query, OR vector retriever has an embedding hiccup.
+        results = await asyncio.gather(
             self._vector.retrieve(
                 tenant_id=tenant_id, query=query, k=per_retriever_k, filters=filters
             ),
             self._keyword.retrieve(
                 tenant_id=tenant_id, query=query, k=per_retriever_k, filters=filters
             ),
+            return_exceptions=True,
         )
+        import logging
+        log = logging.getLogger(__name__)
+        vector_hits = results[0] if not isinstance(results[0], BaseException) else []
+        if isinstance(results[0], BaseException):
+            log.warning("hybrid: vector retriever failed: %s", results[0])
+        keyword_hits = results[1] if not isinstance(results[1], BaseException) else []
+        if isinstance(results[1], BaseException):
+            log.warning("hybrid: keyword retriever failed: %s", results[1])
 
         # Build a {chunk_id -> RetrievedChunk} map keeping the richest
         # version of each hit (vector list runs first).

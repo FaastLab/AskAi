@@ -316,21 +316,18 @@ class IngestionPipeline:
         session.add_all(db_rows)
         await session.flush()
 
-        # 2) Embed in batches and update.
+        # 2) Embed in batches and update VIA THE SAME SESSION so the UPDATE
+        # sees the freshly-inserted (but uncommitted) rows. The old path
+        # called `vector_store.upsert_batch` which opens a separate
+        # transaction on the engine — that transaction couldn't see the
+        # uncommitted chunks, so UPDATE matched zero rows and embeddings
+        # stayed at their `[0.0]*1536` placeholder. Vector search then
+        # silently returned NaN distances and 0 hits forever.
         for i in range(0, len(db_rows), EMBED_BATCH_SIZE):
             batch = db_rows[i : i + EMBED_BATCH_SIZE]
             vectors = await self._embeddings.embed_batch([r.content for r in batch])
-            await self._vector_store.upsert_batch(
-                tenant_id=self._tenant_id,
-                items=[
-                    {
-                        "chunk_id": r.id,
-                        "document_id": doc.id,
-                        "embedding": v,
-                        "metadata": r.metadata_,
-                    }
-                    for r, v in zip(batch, vectors, strict=True)
-                ],
-            )
+            for row_obj, vec in zip(batch, vectors, strict=True):
+                row_obj.embedding = vec
+            await session.flush()
 
         return len(db_rows)
