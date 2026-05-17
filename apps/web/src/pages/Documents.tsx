@@ -378,6 +378,9 @@ function BrowseList({
                   {d.doc_type}
                 </span>
               )}
+              {d.size_bytes != null && d.size_bytes > 0 && (
+                <span className="text-ink-500">{formatBytes(d.size_bytes)}</span>
+              )}
               {d.effective_date && (
                 <span>
                   effective {new Date(d.effective_date).toLocaleDateString()}
@@ -392,6 +395,13 @@ function BrowseList({
       ))}
     </ul>
   );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function sourceBadge(d: DocumentRecord) {
@@ -485,6 +495,11 @@ function DocumentDetail({
         {doc.version && <span>v{doc.version}</span>}
         {doc.effective_date && (
           <span>effective {new Date(doc.effective_date).toLocaleDateString()}</span>
+        )}
+        {doc.size_bytes != null && doc.size_bytes > 0 && (
+          <span title="Original file size">
+            {formatBytes(doc.size_bytes)}
+          </span>
         )}
         <span className="text-ink-400">
           indexed {new Date(doc.created_at).toLocaleDateString()}
