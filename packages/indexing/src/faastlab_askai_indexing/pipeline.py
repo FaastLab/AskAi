@@ -275,15 +275,23 @@ class IngestionPipeline:
             return 0
 
         # 1) Insert the rows so embeddings can update them by id.
+        # Strip NUL bytes (\x00) from text — they're routinely emitted by
+        # buggy PDF producers and Postgres rejects them in text columns.
         db_rows: list[DbChunk] = []
         for ck in chunks:
+            content = (ck.text or "").replace("\x00", "")
+            section_path = (
+                ck.section_path.replace("\x00", "")
+                if ck.section_path
+                else ck.section_path
+            )
             row = DbChunk(
                 id=uuid4(),
                 tenant_id=self._tenant_id,
                 document_id=doc.id,
-                content=ck.text,
+                content=content,
                 embedding=[0.0] * self._embeddings.dim,  # placeholder
-                section_path=ck.section_path,
+                section_path=section_path,
                 page_number=ck.page_number,
                 char_start=ck.char_start,
                 char_end=ck.char_end,
