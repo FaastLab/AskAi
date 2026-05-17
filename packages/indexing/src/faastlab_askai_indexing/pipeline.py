@@ -262,6 +262,20 @@ class IngestionPipeline:
             md_doc_type = source.metadata.get("doc_type")
             if md_doc_type and not doc.doc_type:
                 doc.doc_type = str(md_doc_type)[:64]
+        # Persist the original filename so /file can serve it back with
+        # the real extension (.pdf / .docx / .xlsx / .txt / .html) rather
+        # than guessing from Content-Type. Stored in metadata, not a new
+        # column, to avoid a migration.
+        if source.filename:
+            doc.metadata_ = {
+                **(doc.metadata_ or {}),
+                "original_filename": source.filename,
+            }
+        if source.content_type:
+            doc.metadata_ = {
+                **(doc.metadata_ or {}),
+                "content_type": source.content_type,
+            }
         await session.flush()
         return doc, was_update
 

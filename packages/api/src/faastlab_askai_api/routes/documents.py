@@ -214,32 +214,48 @@ async def download_document_file(
         ) from exc
 
     # MIME type detection priority:
-    #   1. Source URI (regulator URLs reliably end in .pdf / .docx / .html)
-    #   2. Title (only useful if it has an extension, e.g. user-uploaded files)
-    #   3. Stored metadata.content_type (set by some connectors at ingest time)
-    #   4. octet-stream fallback (forces download in browsers)
-    content_type, _ = mimetypes.guess_type(doc.source_uri)
+    #   1. Stored metadata.content_type (recorded at ingest time — most accurate)
+    #   2. Original filename (extension reveals the type — user uploads + watcher)
+    #   3. Source URI (regulator URLs reliably end in .pdf / .docx)
+    #   4. Title (rarely has an extension but cheap to check)
+    #   5. octet-stream fallback (forces download in browsers)
+    md = doc.metadata_ or {}
+    original_filename = md.get("original_filename")
+    content_type = md.get("content_type")
+    if not content_type and original_filename:
+        content_type, _ = mimetypes.guess_type(original_filename)
+    if not content_type:
+        content_type, _ = mimetypes.guess_type(doc.source_uri)
     if not content_type:
         content_type, _ = mimetypes.guess_type(doc.title)
     if not content_type:
-        content_type = (doc.metadata_ or {}).get("content_type") or "application/octet-stream"
+        content_type = "application/octet-stream"
 
-    # RFC 5987-style filename* carries full Unicode via percent-encoding.
-    # The bare `filename="..."` fallback MUST be Latin-1-safe — em-dashes
-    # and curly quotes in regulator titles break Starlette's header
-    # encoder otherwise. So we ship two filenames: an ASCII-only safe
-    # fallback and the full Unicode UTF-8 percent-encoded form.
-    safe = doc.title.replace('"', "").replace("\r", " ").replace("\n", " ")
-    ascii_safe = "".join(c if 32 <= ord(c) < 127 else "_" for c in safe) or "document"
+    # Filename to serve back — priority:
+    #   1. The original filename stored at ingest time (preserves the real
+    #      extension and is what users uploaded). Used as the bare ASCII
+    #      filename AND the Unicode fallback.
+    #   2. The human-readable title with an auto-appended extension based
+    #      on Content-Type (synthesised — for handbook ingests where the
+    #      title is descriptive like "FCA Handbook — PRIN").
+    #
+    # The bare `filename="..."` in Content-Disposition MUST be Latin-1
+    # safe (em-dashes break Starlette's header encoder), so we ASCII-clean
+    # it. The `filename*=UTF-8''<percent-encoded>` carries the full
+    # Unicode title for browsers that support RFC 5987.
+    if original_filename:
+        display_name = original_filename
+    else:
+        display_name = doc.title or "document"
+        ext_for_ct = mimetypes.guess_extension(content_type) or ".bin"
+        if not display_name.lower().endswith(ext_for_ct.lower()):
+            display_name = display_name + ext_for_ct
 
-    # Ensure the ASCII fallback has the right extension — browsers use
-    # the filename's extension (not Content-Type alone) to decide whether
-    # to render inline or force download.
-    ext_for_ct = mimetypes.guess_extension(content_type) or ".bin"
-    if not ascii_safe.lower().endswith(ext_for_ct.lower()):
-        ascii_safe = ascii_safe + ext_for_ct
-
-    quoted = quote(safe + ext_for_ct, safe="")
+    safe = display_name.replace('"', "").replace("\r", " ").replace("\n", " ")
+    ascii_safe = (
+        "".join(c if 32 <= ord(c) < 127 else "_" for c in safe) or "document"
+    )
+    quoted = quote(safe, safe="")
     return StreamingResponse(
         io.BytesIO(data),
         media_type=content_type,
