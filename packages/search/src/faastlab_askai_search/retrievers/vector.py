@@ -91,12 +91,20 @@ def _build_filter_clauses(
 ) -> tuple[str, dict[str, Any]]:
     # Accept one tenant or many — the latter is how we union a caller's
     # private tenant with the public regulator corpus tenant.
+    #
+    # We deliberately build literal `IN (:t0, :t1, ...)` clauses rather
+    # than `ANY(:tenant_ids)` because SQLAlchemy text() + asyncpg doesn't
+    # cleanly bind Python list[UUID] to PostgreSQL uuid[] — it silently
+    # returns zero rows. Per-parameter binding works reliably.
+    params: dict[str, Any] = {}
     if len(tenant_ids) == 1:
         clauses = ["c.tenant_id = :tenant_id"]
-        params: dict[str, Any] = {"tenant_id": tenant_ids[0]}
+        params["tenant_id"] = tenant_ids[0]
     else:
-        clauses = ["c.tenant_id = ANY(:tenant_ids)"]
-        params = {"tenant_ids": tenant_ids}
+        placeholders = ", ".join(f":tenant_id_{i}" for i in range(len(tenant_ids)))
+        clauses = [f"c.tenant_id IN ({placeholders})"]
+        for i, tid in enumerate(tenant_ids):
+            params[f"tenant_id_{i}"] = tid
 
     if filters.only_active:
         clauses.append("d.is_active = true")

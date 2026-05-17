@@ -213,9 +213,15 @@ async def download_document_file(
             status_code=500, detail=f"failed to fetch from storage: {exc}"
         ) from exc
 
-    content_type, _ = mimetypes.guess_type(doc.title)
+    # MIME type detection priority:
+    #   1. Source URI (regulator URLs reliably end in .pdf / .docx / .html)
+    #   2. Title (only useful if it has an extension, e.g. user-uploaded files)
+    #   3. Stored metadata.content_type (set by some connectors at ingest time)
+    #   4. octet-stream fallback (forces download in browsers)
+    content_type, _ = mimetypes.guess_type(doc.source_uri)
     if not content_type:
-        # Fall back to metadata if the indexer recorded it; otherwise octet-stream.
+        content_type, _ = mimetypes.guess_type(doc.title)
+    if not content_type:
         content_type = (doc.metadata_ or {}).get("content_type") or "application/octet-stream"
 
     # RFC 5987-style filename* carries full Unicode via percent-encoding.
@@ -225,7 +231,15 @@ async def download_document_file(
     # fallback and the full Unicode UTF-8 percent-encoded form.
     safe = doc.title.replace('"', "").replace("\r", " ").replace("\n", " ")
     ascii_safe = "".join(c if 32 <= ord(c) < 127 else "_" for c in safe) or "document"
-    quoted = quote(safe, safe="")
+
+    # Ensure the ASCII fallback has the right extension — browsers use
+    # the filename's extension (not Content-Type alone) to decide whether
+    # to render inline or force download.
+    ext_for_ct = mimetypes.guess_extension(content_type) or ".bin"
+    if not ascii_safe.lower().endswith(ext_for_ct.lower()):
+        ascii_safe = ascii_safe + ext_for_ct
+
+    quoted = quote(safe + ext_for_ct, safe="")
     return StreamingResponse(
         io.BytesIO(data),
         media_type=content_type,
