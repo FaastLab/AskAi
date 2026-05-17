@@ -170,6 +170,11 @@ def _wrap_html(body: str, title: str) -> str:
 async def _download(
     client: httpx.AsyncClient, url: str, *, dest: Path, force: bool
 ) -> Path | None:
+    """Fetch `url` to `dest`. Detects soft-404s by checking the response
+    content against the URL extension (PDFs must start with `%PDF-`).
+
+    Returns None on transport error OR on soft-404 (200 OK but wrong type).
+    """
     if dest.exists() and dest.stat().st_size > 0 and not force:
         log.info("cached: %s", dest.name)
         return dest
@@ -180,8 +185,36 @@ async def _download(
     except httpx.HTTPError as exc:
         log.warning("download failed: %s (%s)", url, exc)
         return None
+
+    body = response.content
+
+    # Soft-404 detection — many regulator sites return 200 OK for missing
+    # PDFs but serve the "page not found" HTML page in the body. Without
+    # this check, the ingester happily indexes those error pages as
+    # regulator content.
+    looks_like_pdf_url = url.lower().split("?")[0].endswith(".pdf")
+    starts_with_pdf_magic = body.startswith(b"%PDF-")
+    content_type = response.headers.get("Content-Type", "").lower()
+    if looks_like_pdf_url and not starts_with_pdf_magic:
+        log.warning(
+            "soft-404: %s returned 200 but body is not a PDF (Content-Type=%r, first 80 bytes=%r) — skipping",
+            url,
+            content_type,
+            body[:80],
+        )
+        return None
+
+    # For non-PDF URLs (HTML hubs), a tiny body is suspicious. Real
+    # regulator pages are at least ~2 KB.
+    if not looks_like_pdf_url and len(body) < 500:
+        log.warning(
+            "soft-404 (small body): %s returned %d bytes — skipping",
+            url, len(body),
+        )
+        return None
+
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(response.content)
+    dest.write_bytes(body)
     return dest
 
 

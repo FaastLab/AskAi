@@ -3,22 +3,24 @@
 # Two entry types:
 #   - type: pdf            → direct PDF/DOCX/HTML URL fetched once
 #   - type: govuk_manual   → recurses gov.uk's content API to grab every
-#                            chapter of a multi-part manual (HMRC manuals,
-#                            ICO guidance hubs, TPR codes). Returns rich
-#                            structured HTML — perfect for chunking.
+#                            chapter of a multi-part manual (HMRC manuals).
 #
-# ALL URLS HERE ARE EDITABLE. Some are best-guesses at time of writing;
-# if any 404s, fix that line and re-run. The ingester treats individual
-# URL failures as warnings, not errors — partial corpora are useful.
+# All URLs in this file were verified HTTP 200 with correct body type
+# (%PDF- magic bytes for PDFs, ≥2KB HTML for hubs) on 2026-05-16.
 #
-# License: documents are Crown Copyright / OGL v3.0. Their licences allow
-# redistribution + use with attribution; the ingester records the source
-# URL on every document so attribution flows through to citations.
+# **FCA Handbook canonical PDFs live at api-handbook.fca.org.uk**, NOT
+# at www.handbook.fca.org.uk (the latter serves soft-404 HTML for PDF
+# paths). The ingester also has a runtime soft-404 detector for extra
+# safety.
+#
+# License: Crown Copyright / Open Government Licence v3.0. Both licences
+# allow redistribution + use with attribution; the ingester records the
+# source URL on every document so attribution flows through to citations.
 
 ingests:
 
   # ============================================================
-  # FCA — Handbook + key guidance
+  # FCA — Finalised Guidance + Policy Statements (verified)
   # ============================================================
 
   - name: "FCA — Consumer Duty (FG22/5)"
@@ -35,102 +37,280 @@ ingests:
     url: "https://www.fca.org.uk/publication/policy/ps22-10.pdf"
     effective_date: "2023-02-01"
 
-  - name: "FCA — PRIN Sourcebook (full PDF)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/PRIN.pdf"
-
-  - name: "FCA — COBS Sourcebook (full PDF)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/COBS.pdf"
-
-  - name: "FCA — CONC Sourcebook (Consumer Credit)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/CONC.pdf"
-
-  - name: "FCA — SYSC Sourcebook (Systems & Controls)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/SYSC.pdf"
-
-  - name: "FCA — DISP Sourcebook (Complaints handling)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/DISP.pdf"
-
-  - name: "FCA — MCOB Sourcebook (Mortgages)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/MCOB.pdf"
-
-  - name: "FCA — ICOBS Sourcebook (Insurance Conduct)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/ICOBS.pdf"
-
-  - name: "FCA — SUP Sourcebook (Supervision)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/SUP.pdf"
-
-  - name: "FCA — PROD Sourcebook (Product Governance)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/PROD.pdf"
-
-  - name: "FCA — BCOBS Sourcebook (Banking Conduct)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/BCOBS.pdf"
-
-  - name: "FCA — Senior Managers and Certification Regime (SYSC 27)"
-    type: pdf
-    regulator: fca
-    doc_type: fca
-    url: "https://www.handbook.fca.org.uk/handbook/SYSC/27.pdf"
-
   # ============================================================
-  # PRA — Rulebook + supervisory statements
+  # FCA Handbook Sourcebooks — canonical PDFs at api-handbook.fca.org.uk
+  # (verified working pattern; soft-404 detector catches any future drift)
   # ============================================================
 
-  - name: "PRA Rulebook (full)"
+  - name: "FCA Handbook — PRIN (Principles for Businesses)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/PRIN.pdf"
+
+  - name: "FCA Handbook — SYSC (Senior Management Arrangements, Systems and Controls)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/SYSC.pdf"
+
+  - name: "FCA Handbook — COND (Threshold Conditions)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/COND.pdf"
+
+  - name: "FCA Handbook — APER (Statements of Principle for Approved Persons)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/APER.pdf"
+
+  - name: "FCA Handbook — COCON (Code of Conduct, SMCR)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/COCON.pdf"
+
+  - name: "FCA Handbook — FIT (Fit and Proper Test, SMCR)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/FIT.pdf"
+
+  - name: "FCA Handbook — TC (Training and Competence)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/TC.pdf"
+
+  - name: "FCA Handbook — GEN (General Provisions)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/GEN.pdf"
+
+  - name: "FCA Handbook — FEES"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/FEES.pdf"
+
+  - name: "FCA Handbook — GENPRU (General Prudential Sourcebook)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/GENPRU.pdf"
+
+  - name: "FCA Handbook — MIPRU (Mortgage/Home Finance/Insurance Intermediaries Prudential)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/MIPRU.pdf"
+
+  - name: "FCA Handbook — IPRU-INV (Interim Prudential — Investment Businesses)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/IPRU-INV.pdf"
+
+  - name: "FCA Handbook — COBS (Conduct of Business Sourcebook)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/COBS.pdf"
+
+  - name: "FCA Handbook — ICOBS (Insurance: Conduct of Business)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/ICOBS.pdf"
+
+  - name: "FCA Handbook — MCOB (Mortgages and Home Finance: Conduct of Business)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/MCOB.pdf"
+
+  - name: "FCA Handbook — BCOBS (Banking: Conduct of Business)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/BCOBS.pdf"
+
+  - name: "FCA Handbook — CONC (Consumer Credit Sourcebook)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/CONC.pdf"
+
+  - name: "FCA Handbook — CASS (Client Assets)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/CASS.pdf"
+
+  - name: "FCA Handbook — MAR (Market Conduct)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/MAR.pdf"
+
+  - name: "FCA Handbook — SUP (Supervision)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/SUP.pdf"
+
+  - name: "FCA Handbook — DEPP (Decision Procedure and Penalties)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/DEPP.pdf"
+
+  - name: "FCA Handbook — DISP (Dispute Resolution: Complaints)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/DISP.pdf"
+
+  - name: "FCA Handbook — COMP (Compensation)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/COMP.pdf"
+
+  - name: "FCA Handbook — COLL (Collective Investment Schemes)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/COLL.pdf"
+
+  - name: "FCA Handbook — FUND (Investment Funds)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/FUND.pdf"
+
+  - name: "FCA Handbook — DTR (Disclosure Guidance and Transparency Rules)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/DTR.pdf"
+
+  - name: "FCA Handbook — ESG (Environmental, Social and Governance)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/ESG.pdf"
+
+  - name: "FCA Handbook — PERG (Perimeter Guidance Manual)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/PERG.pdf"
+
+  - name: "FCA Handbook — FCG (Financial Crime Guide)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/FCG.pdf"
+
+  - name: "FCA Handbook — ENFG (Enforcement Guide)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/ENFG.pdf"
+
+  - name: "FCA Handbook — CTPS (Critical Third Party Sourcebook)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/CTPS.pdf"
+
+  - name: "FCA Handbook — UKLR (UK Listing Rules)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/UKLR.pdf"
+
+  - name: "FCA Handbook — CREDS (Credit Unions)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/CREDS.pdf"
+
+  - name: "FCA Handbook — REC (Recognised Investment Exchanges)"
+    type: pdf
+    regulator: fca
+    doc_type: fca
+    url: "https://api-handbook.fca.org.uk/files/sourcebook/REC.pdf"
+
+  # ============================================================
+  # PRA — No combined PDF; use online index + Instruments PDFs
+  # ============================================================
+
+  - name: "PRA Rulebook — online index (HTML hub)"
     type: pdf
     regulator: pra
     doc_type: pra
-    url: "https://www.prarulebook.co.uk/getpdf/all"
+    url: "https://www.prarulebook.co.uk/"
+
+  - name: "PRA Rulebook — List of Consolidated Instruments 2025"
+    type: pdf
+    regulator: pra
+    doc_type: pra
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/policy/pra-rulebook-instruments-2025.pdf"
+
+  - name: "PRA Rulebook — List of Consolidated Instruments 2021"
+    type: pdf
+    regulator: pra
+    doc_type: pra
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/policy/pra-rulebook-instruments-2021.pdf"
 
   # ============================================================
-  # BoE — Financial Stability Report + working papers (latest URLs)
+  # BoE — Financial Stability & Monetary Policy Reports (verified)
   # ============================================================
 
-  - name: "BoE — Financial Stability Report (latest)"
+  - name: "BoE — Financial Stability Report (December 2025, latest)"
     type: pdf
     regulator: boe
     doc_type: boe
-    url: "https://www.bankofengland.co.uk/-/media/boe/files/financial-stability-report/2024/december-2024.pdf"
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/financial-stability-report/2025/financial-stability-report-december-2025.pdf"
+    effective_date: "2025-12-01"
+
+  - name: "BoE — Financial Stability Report (July 2025)"
+    type: pdf
+    regulator: boe
+    doc_type: boe
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/financial-stability-report/2025/financial-stability-report-july-2025.pdf"
+    effective_date: "2025-07-01"
+
+  - name: "BoE — Monetary Policy Report (April 2026, latest)"
+    type: pdf
+    regulator: boe
+    doc_type: boe
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/monetary-policy-report/2026/april/monetary-policy-report-april-2026.pdf"
+    effective_date: "2026-04-01"
+
+  - name: "BoE — Monetary Policy Report (February 2026)"
+    type: pdf
+    regulator: boe
+    doc_type: boe
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/monetary-policy-report/2026/february/monetary-policy-report-february-2026.pdf"
+    effective_date: "2026-02-01"
 
   # ============================================================
-  # HMRC — Internal Manuals (via gov.uk content API)
-  # AML / payment-services / crypto are the highest-value for fintech.
+  # HMRC — Internal Manuals via gov.uk content API (verified slugs)
+  # Note: AML guidance + AML supervision manuals were folded into the
+  # Economic Crime Supervision Handbook in Jan 2025.
   # ============================================================
 
-  - name: "HMRC — Anti-Money Laundering Guidance"
+  - name: "HMRC — Economic Crime Supervision Handbook (replaces AML Guidance + Supervision)"
     type: govuk_manual
     regulator: hmrc
     doc_type: hmrc
-    govuk_path: "/hmrc-internal-manuals/anti-money-laundering-guidance"
+    govuk_path: "/hmrc-internal-manuals/economic-crime-supervision-handbook"
 
   - name: "HMRC — Cryptoassets Manual"
     type: govuk_manual
@@ -138,52 +318,59 @@ ingests:
     doc_type: hmrc
     govuk_path: "/hmrc-internal-manuals/cryptoassets-manual"
 
-  - name: "HMRC — Money Laundering Regulations: Trust or Company Service Providers"
+  - name: "HMRC — Senior Accounting Officers Guidance"
     type: govuk_manual
     regulator: hmrc
     doc_type: hmrc
-    govuk_path: "/hmrc-internal-manuals/anti-money-laundering-supervision"
-
-  - name: "HMRC — Senior Accounting Officer Guidance"
-    type: govuk_manual
-    regulator: hmrc
-    doc_type: hmrc
-    govuk_path: "/hmrc-internal-manuals/senior-accounting-officer-guidance"
+    govuk_path: "/hmrc-internal-manuals/senior-accounting-officers-guidance"
 
   # ============================================================
-  # ICO — Data protection codes & guidance
+  # ICO — Mix of HTML hubs (canonical now) + stable PDFs
   # ============================================================
 
-  - name: "ICO — Data Sharing Code of Practice"
+  - name: "ICO — UK GDPR Guidance & Resources hub (HTML canonical)"
     type: pdf
     regulator: ico
     doc_type: ico
-    url: "https://ico.org.uk/media/for-organisations/data-sharing-a-code-of-practice-1-0.pdf"
+    url: "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/"
 
-  - name: "ICO — Age Appropriate Design Code"
+  - name: "ICO — Data Sharing Code of Practice (HTML canonical)"
     type: pdf
     regulator: ico
     doc_type: ico
-    url: "https://ico.org.uk/media/for-organisations/guide-to-data-protection/key-data-protection-themes/age-appropriate-design-a-code-of-practice-for-online-services-2-1.pdf"
+    url: "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-sharing/data-sharing-a-code-of-practice/"
 
-  - name: "ICO — Guide to UK GDPR (PDF)"
+  - name: "ICO — Data Sharing Code: The Basics (PDF summary)"
     type: pdf
     regulator: ico
     doc_type: ico
-    url: "https://ico.org.uk/media/for-organisations/guide-to-data-protection/guide-to-the-general-data-protection-regulation-gdpr-1-1.pdf"
+    url: "https://ico.org.uk/media2/migrated/2618790/data-sharing-code-the-basics.pdf"
 
-  - name: "ICO — Subject Access Request Guidance"
+  - name: "ICO — Age Appropriate Design Code (HTML canonical)"
     type: pdf
     regulator: ico
     doc_type: ico
-    url: "https://ico.org.uk/media/for-organisations/documents/2014223/subject-access-code-of-practice.pdf"
+    url: "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/childrens-information/childrens-code-guidance-and-resources/age-appropriate-design-a-code-of-practice-for-online-services/"
+
+  - name: "ICO — Children's Code Impact Assessment (PDF)"
+    type: pdf
+    regulator: ico
+    doc_type: ico
+    url: "https://ico.org.uk/media2/about-the-ico/documents/2617988/aadc-impact-assessment-v1_3.pdf"
+
+  - name: "ICO — Right of Access (Subject Access Request) guidance (Dec 2025)"
+    type: pdf
+    regulator: ico
+    doc_type: ico
+    url: "https://ico.org.uk/media2/5txar1ff/right-of-access.pdf"
 
   # ============================================================
-  # TPR — Codes of Practice (key fintech-adjacent ones)
+  # TPR — General Code of Practice (verified)
   # ============================================================
 
-  - name: "TPR — General Code of Practice (replaces codes 1-7, 9, 11-14)"
+  - name: "TPR — General Code of Practice (March 2024, replaces codes 1-7, 9, 11-14)"
     type: pdf
     regulator: tpr
     doc_type: tpr
-    url: "https://www.thepensionsregulator.gov.uk/-/media/thepensionsregulator/files/import/pdf/general-code-of-practice.pdf"
+    url: "https://www.thepensionsregulator.gov.uk/media/3rhduw51/general-code-of-practice.pdf"
+    effective_date: "2024-03-28"
