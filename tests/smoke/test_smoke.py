@@ -7,20 +7,22 @@ and verify the critical paths still work.
 Each test exists because we had a real regression that the test would
 have caught immediately:
 
-  - test_health_endpoint              → uvicorn / NPM routing
+  - test_healthz_endpoint             → uvicorn / NPM routing
   - test_config_endpoint              → settings load
   - test_signup_and_login_flow        → auth round-trip
-  - test_documents_list_and_counts    → shared-corpus union
+  - test_documents_list_visible       → shared-corpus union
+  - test_documents_counts             → route order + counts shape
   - test_search_returns_real_hits     → 🟢 catches the embedding-update transaction bug
                                           that left chunks with [0.0]*1536 placeholders
-  - test_ask_streaming_with_citations → catches RAG chain breakage
+  - test_ask_non_streaming_returns_answer_with_citations → catches RAG chain breakage
   - test_validator_packs_listed       → validator registry sanity
-  - test_audit_filter_chip_404_route  → catches FastAPI route-ordering regressions
+  - test_documents_counts_route_not_clashing_with_id_route → route-ordering regression
+  - test_trial_user_can_ask_within_trial → trial-guard regression
 
 Run:
     SMOKE_BASE_URL=https://askai.faastlab.ai \
     SMOKE_OPENAI_KEY=sk-... \
-    pytest tests/smoke -v
+    make smoke
 """
 
 from __future__ import annotations
@@ -34,29 +36,27 @@ import pytest
 BASE_URL = os.environ.get("SMOKE_BASE_URL", "http://localhost:8000").rstrip("/")
 OPENAI_KEY = os.environ.get("SMOKE_OPENAI_KEY")  # required for /search and /ask tests
 
-# A query we know SHOULD return hits if the regulator corpus is loaded.
-# If this returns 0 hits, retrieval is broken (embedding placeholder bug etc).
 KNOWN_GOOD_QUERY = "consumer duty"
 
-pytestmark = pytest.mark.asyncio
+
+@pytest.fixture(scope="session")
+def http() -> httpx.Client:
+    """Sync httpx client — sidesteps pytest-asyncio event-loop quirks for
+    module-scoped fixtures that confused our async setup earlier."""
+    with httpx.Client(timeout=httpx.Timeout(120.0), follow_redirects=True) as c:
+        yield c
 
 
-@pytest.fixture(scope="module")
-async def http() -> httpx.AsyncClient:  # type: ignore[misc]
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-        yield client
-
-
-@pytest.fixture(scope="module")
-async def auth_session(http: httpx.AsyncClient) -> dict:
-    """Sign up a throw-away tenant and return its JWT + tenant info."""
+@pytest.fixture(scope="session")
+def auth_session(http: httpx.Client) -> dict:
+    """Sign up a throw-away tenant once per session and reuse the JWT."""
     email = f"smoke+{uuid.uuid4().hex[:8]}@faastlab.ai"
     payload = {
         "email": email,
         "password": "smoke-test-pass-1234!",
         "organisation": f"Smoke Test {uuid.uuid4().hex[:6]}",
     }
-    r = await http.post(f"{BASE_URL}/v1/auth/signup", json=payload)
+    r = http.post(f"{BASE_URL}/v1/auth/signup", json=payload)
     assert r.status_code == 201, f"signup failed: {r.status_code} {r.text}"
     data = r.json()
     assert "access_token" in data
@@ -69,13 +69,14 @@ async def auth_session(http: httpx.AsyncClient) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def test_health_endpoint(http: httpx.AsyncClient) -> None:
-    r = await http.get(f"{BASE_URL}/health")
+def test_healthz_endpoint(http: httpx.Client) -> None:
+    r = http.get(f"{BASE_URL}/healthz")
     assert r.status_code == 200, f"unexpected {r.status_code}: {r.text}"
+    assert r.json()["status"] == "ok"
 
 
-async def test_config_endpoint(http: httpx.AsyncClient) -> None:
-    r = await http.get(f"{BASE_URL}/v1/config")
+def test_config_endpoint(http: httpx.Client) -> None:
+    r = http.get(f"{BASE_URL}/v1/config")
     assert r.status_code == 200
     body = r.json()
     assert "default_tenant" in body
@@ -88,29 +89,27 @@ async def test_config_endpoint(http: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_signup_and_login_flow(http: httpx.AsyncClient) -> None:
+def test_signup_and_login_flow(http: httpx.Client) -> None:
     email = f"smoke+{uuid.uuid4().hex[:8]}@faastlab.ai"
     pw = "smoke-test-pass-1234!"
     org = f"SmokeOrg {uuid.uuid4().hex[:6]}"
 
     # Signup
-    r = await http.post(
+    r = http.post(
         f"{BASE_URL}/v1/auth/signup",
         json={"email": email, "password": pw, "organisation": org},
     )
     assert r.status_code == 201
-    signup_token = r.json()["access_token"]
+    assert r.json()["access_token"]
 
-    # Re-login with same creds returns a fresh token
-    r = await http.post(
-        f"{BASE_URL}/v1/auth/login", json={"email": email, "password": pw}
-    )
+    # Re-login with same creds
+    r = http.post(f"{BASE_URL}/v1/auth/login", json={"email": email, "password": pw})
     assert r.status_code == 200
     login_token = r.json()["access_token"]
-    assert login_token  # don't compare equality — iat differs
+    assert login_token
 
     # /auth/me with the JWT
-    r = await http.get(
+    r = http.get(
         f"{BASE_URL}/v1/auth/me", headers={"Authorization": f"Bearer {login_token}"}
     )
     assert r.status_code == 200
@@ -124,22 +123,21 @@ async def test_signup_and_login_flow(http: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_documents_list_visible(http: httpx.AsyncClient, auth_session: dict) -> None:
+def test_documents_list_visible(http: httpx.Client, auth_session: dict) -> None:
     token = auth_session["access_token"]
-    r = await http.get(
+    r = http.get(
         f"{BASE_URL}/v1/documents",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
     docs = r.json()
-    # New tenant has 0 uploads but should see ≥1 doc via shared corpus union.
     assert isinstance(docs, list)
     assert len(docs) >= 1, "tenant sees no documents — shared corpus union broken"
 
 
-async def test_documents_counts(http: httpx.AsyncClient, auth_session: dict) -> None:
+def test_documents_counts(http: httpx.Client, auth_session: dict) -> None:
     token = auth_session["access_token"]
-    r = await http.get(
+    r = http.get(
         f"{BASE_URL}/v1/documents/_counts",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -147,20 +145,34 @@ async def test_documents_counts(http: httpx.AsyncClient, auth_session: dict) -> 
     counts = r.json()
     assert "total" in counts
     assert "uploads" in counts
-    # Brand new tenant: uploads == 0
     assert counts["uploads"] == 0
+
+
+def test_documents_counts_route_not_clashing_with_id_route(
+    http: httpx.Client, auth_session: dict
+) -> None:
+    """Regression guard: `/documents/_counts` must NOT be matched as a UUID
+    by `/documents/{document_id}`."""
+    token = auth_session["access_token"]
+    r = http.get(
+        f"{BASE_URL}/v1/documents/_counts",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body, dict)
+    assert "total" in body
 
 
 # ---------------------------------------------------------------------------
 # 4. The big one — RAG retrieval actually returns hits
-#    (would have caught today's embedding-update transaction bug)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not OPENAI_KEY, reason="needs SMOKE_OPENAI_KEY for embedding")
-async def test_search_returns_real_hits(http: httpx.AsyncClient, auth_session: dict) -> None:
+def test_search_returns_real_hits(http: httpx.Client, auth_session: dict) -> None:
     token = auth_session["access_token"]
-    r = await http.post(
+    r = http.post(
         f"{BASE_URL}/v1/search",
         headers={
             "Authorization": f"Bearer {token}",
@@ -176,18 +188,17 @@ async def test_search_returns_real_hits(http: httpx.AsyncClient, auth_session: d
         f"search for {KNOWN_GOOD_QUERY!r} returned 0 hits — "
         "vector retrieval broken (embedding placeholders? wrong tenant union?)"
     )
-    # Every hit should have content + a score
     for h in hits:
         assert h["content"], "hit has empty content"
         assert h["score"] is not None
 
 
 @pytest.mark.skipif(not OPENAI_KEY, reason="needs SMOKE_OPENAI_KEY for embedding")
-async def test_ask_non_streaming_returns_answer_with_citations(
-    http: httpx.AsyncClient, auth_session: dict
+def test_ask_non_streaming_returns_answer_with_citations(
+    http: httpx.Client, auth_session: dict
 ) -> None:
     token = auth_session["access_token"]
-    r = await http.post(
+    r = http.post(
         f"{BASE_URL}/v1/ask",
         headers={
             "Authorization": f"Bearer {token}",
@@ -205,7 +216,7 @@ async def test_ask_non_streaming_returns_answer_with_citations(
     body = r.json()
     assert "answer" in body
     assert "citations" in body
-    # Real answer should be substantive — refusal is exactly 128 chars.
+    # Refusal text is exactly 128 chars — anything longer means real answer.
     assert len(body["answer"]) > 200, (
         f"ask returned a stub answer ({len(body['answer'])} chars) — "
         "likely the no-context refusal. Retrieval broken."
@@ -214,13 +225,13 @@ async def test_ask_non_streaming_returns_answer_with_citations(
 
 
 # ---------------------------------------------------------------------------
-# 5. Validator + audit routing
+# 5. Validator + trial guard
 # ---------------------------------------------------------------------------
 
 
-async def test_validator_packs_listed(http: httpx.AsyncClient, auth_session: dict) -> None:
+def test_validator_packs_listed(http: httpx.Client, auth_session: dict) -> None:
     token = auth_session["access_token"]
-    r = await http.get(
+    r = http.get(
         f"{BASE_URL}/v1/validators/packs",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -230,42 +241,16 @@ async def test_validator_packs_listed(http: httpx.AsyncClient, auth_session: dic
     assert "fca-consumer-duty" in pack_ids
     assert "hmrc-aml" in pack_ids
     assert "uk-gdpr" in pack_ids
-    # Each pack must have at least one requirement
     for p in packs:
         assert len(p["requirements"]) >= 1
 
 
-async def test_documents_counts_route_not_clashing_with_id_route(
-    http: httpx.AsyncClient, auth_session: dict
-) -> None:
-    """Regression guard: `/documents/_counts` must NOT be matched as a UUID
-    by `/documents/{document_id}`. We caught this exact bug in production
-    once when the route order was wrong."""
-    token = auth_session["access_token"]
-    r = await http.get(
-        f"{BASE_URL}/v1/documents/_counts",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    # Should be a dict (counts), NOT a 422 from UUID parsing.
-    assert r.status_code == 200
-    body = r.json()
-    assert isinstance(body, dict)
-    assert "total" in body
-
-
-# ---------------------------------------------------------------------------
-# 6. Trial guard
-# ---------------------------------------------------------------------------
-
-
-async def test_trial_user_can_ask_within_trial(
-    http: httpx.AsyncClient, auth_session: dict
+def test_trial_user_can_ask_within_trial(
+    http: httpx.Client, auth_session: dict
 ) -> None:
     """New tenant signup → 14-day trial → /v1/ask should NOT 402."""
     token = auth_session["access_token"]
-    # Use a header-only ping (we don't care about answer quality here,
-    # just that the trial guard lets us through).
-    r = await http.post(
+    r = http.post(
         f"{BASE_URL}/v1/ask",
         headers={
             "Authorization": f"Bearer {token}",
