@@ -19,6 +19,7 @@ const CHIPS: { key: string; label: string }[] = [
   { key: "fca", label: "FCA" },
   { key: "boe", label: "BoE" },
   { key: "pra", label: "PRA" },
+  { key: "pra-sol-ii", label: "PRA Solvency II" },
   { key: "hmrc", label: "HMRC" },
   { key: "tpr", label: "TPR" },
   { key: "ico", label: "ICO" },

@@ -269,6 +269,157 @@ ingests:
     url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/policy/pra-rulebook-instruments-2021.pdf"
 
   # ============================================================
+  # PRA Solvency II — Insurance regulation pack (24 PDFs)
+  # Approach docs, Statements of Policy, Supervisory Statements,
+  # Policy Statements covering Solvency II + Solvency UK reform.
+  # All verified HTTP 200 + application/pdf on 2026-05-17.
+  # ============================================================
+
+  - name: "PRA — The PRA's Approach to Insurance Supervision (2023)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/approach/insurance-approach-2023.pdf"
+
+  - name: "PRA — The PRA's Approach to Insurance Supervision (2016, historical baseline)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/approach/insurance-approach-2016.pdf"
+
+  - name: "PRA SoP — Approach to insurance group supervision (Feb 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/statement-of-policy/2024/the-pra-approach-to-insurance-group-supervision-february-2024.pdf"
+
+  - name: "PRA SoP3/24 — Solvency II internal models: Permissions and ongoing monitoring"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/statement-of-policy/2024/solvency-ii-internal-models-permissions-and-ongoing-monitoring-february-2024.pdf"
+
+  - name: "PRA SoP8/24 — Solvency II: Matching Adjustment Permissions"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/statement-of-policy/2025/sop824.pdf"
+
+  - name: "PRA SoP10/24 — Solvency II: Approach to insurance own funds permissions"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/statement-of-policy/2024/solvency-ii-approach-to-insurance-own-funds-permission-sop.pdf"
+
+  - name: "PRA SS3/15 — Solvency II: Quality of capital instruments (Mar 2020)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2020/ss315-update-march-2020.pdf"
+
+  - name: "PRA SS4/15 — Solvency II: SCR and minimum capital requirements (Feb 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss415-february-2024-update.pdf"
+
+  - name: "PRA SS5/15 — Solvency II: Pension scheme risk (Nov 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss515-november-2024-update.pdf"
+
+  - name: "PRA SS9/15 — Solvency II: Group supervision (Apr 2020)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2020/ss915-update-april-2020.pdf"
+
+  - name: "PRA SS11/15 — Solvency II: Regulatory reporting and exemptions"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2015/ss1115.pdf"
+
+  - name: "PRA SS17/15 — Solvency II: Transitional measures on risk-free rates + technical provisions (Nov 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss1715-november-2024-update.pdf"
+
+  - name: "PRA SS26/15 — Solvency II: ORSA and ultimate time horizon — non-life (2018)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2018/ss2615update.pdf"
+
+  - name: "PRA SS36/15 — Solvency II: Life insurance product reporting (2018)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2018/ss3615update.pdf"
+
+  - name: "PRA SS41/15 — Solvency II: EIOPA Set 2, System of Governance and ORSA Guidelines (Nov 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss4115-november-2024-update.pdf"
+
+  - name: "PRA SS12/16 — Solvency II: Changes to internal models (2018)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2018/ss1216update.pdf"
+
+  - name: "PRA SS15/16 — Solvency II: Monitoring model drift + standard formula SCR reporting (Sep 2025)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2025/ss1516-september-2025-update.pdf"
+
+  - name: "PRA SS17/16 — Solvency II: Internal models — assessment, model change, role of NEDs (Feb 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss1716-28-february-2024-update.pdf"
+
+  - name: "PRA SS19/16 — Solvency II: ORSA (Nov 2024)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2024/ss1916-november-2024-update.pdf"
+
+  - name: "PRA SS3/17 — Solvency II: Matching adjustment — illiquid unrated assets + ERMs (Apr 2020)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2020/ss317-update-april-2020.pdf"
+
+  - name: "PRA SS7/18 — Solvency II: Matching adjustment (Oct 2025)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2025/ss718-october-2025.pdf"
+
+  - name: "PRA SS8/18 — Solvency II: Internal models — modelling of the matching adjustment (Oct 2025)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/supervisory-statement/2025/ss818-october-2025.pdf"
+
+  - name: "PRA PS10/24 — Review of Solvency II: Matching Adjustment reform (App 2 — near-final reporting)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/policy-statement/2024/june/ps1024app2.pdf"
+
+  - name: "PRA PS15/24 — Review of Solvency II: Restatement of assimilated law (App 1 — final rule changes)"
+    type: pdf
+    regulator: pra
+    doc_type: pra-sol-ii
+    url: "https://www.bankofengland.co.uk/-/media/boe/files/prudential-regulation/policy-statement/2024/november/ps1524app1.pdf"
+
+  # ============================================================
   # BoE — Financial Stability & Monetary Policy Reports (verified)
   # ============================================================
 
