@@ -175,6 +175,10 @@ ingest-handbooks:  ## Bulk-ingest regulator handbooks listed in handbook_sources
 	  $${DRY_RUN:+--dry-run} \
 	  $${FORCE:+--force}
 
+.PHONY: smoke
+smoke:  ## End-to-end smoke tests (set SMOKE_BASE_URL, SMOKE_OPENAI_KEY before running)
+	$(UV) run pytest tests/smoke -v --tb=short
+
 .PHONY: ingest-handbooks-dry
 ingest-handbooks-dry:  ## Print what would be ingested (no fetches, no embeddings)
 	$(UV) run python -m corpus.uk_finreg.handbook_ingester --dry-run
