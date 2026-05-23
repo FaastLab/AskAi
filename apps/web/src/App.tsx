@@ -42,6 +42,10 @@ export default function App() {
         <Route path="/validator" element={<RequireAuth><ValidatorPage /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/audit" element={<RequireAuth><AuditPage /></RequireAuth>} />
+
+        {/* Catch-all — unknown paths bounce home (which RequireAuth then
+            sends to /login if the visitor isn't authenticated). */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
