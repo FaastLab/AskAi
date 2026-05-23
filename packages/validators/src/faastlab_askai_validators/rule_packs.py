@@ -335,9 +335,165 @@ _UK_GDPR = RulePack(
 )
 
 
+# ---- UK debt collections letter (CONC + Consumer Duty + DISP) --------------
+
+_UK_DEBT_COLLECTIONS_LETTER = RulePack(
+    id="uk-debt-collections-letter",
+    regulator="fca",
+    name="UK Collections Letter Compliance (CONC + Consumer Duty)",
+    version="2026.01",
+    summary=(
+        "Per-letter compliance check for FCA-authorised debt purchasers and "
+        "collectors. Targets the CONC 7 consumer-credit collections rules, "
+        "Consumer Duty cross-cutting obligations, and DISP complaint-handling "
+        "signposts. Intended to triage outgoing letters before send and to "
+        "evidence good-outcome decisions to the FCA."
+    ),
+    requirements=(
+        RuleRequirement(
+            id="CL-1",
+            title="Firm identification and FCA reference",
+            description=(
+                "The letter clearly identifies the firm sending it (registered "
+                "name) and provides the firm's FCA Firm Reference Number (FRN), "
+                "so the recipient can verify the firm's authorisation."
+            ),
+            citation="FCA Handbook CONC 7.9.4R; GEN 4.3.1R",
+        ),
+        RuleRequirement(
+            id="CL-2",
+            title="Free debt advice signposting",
+            description=(
+                "The letter signposts the customer to free, impartial debt "
+                "advice (e.g. MoneyHelper, StepChange, National Debtline, "
+                "Citizens Advice) with sufficient information for the customer "
+                "to access that advice."
+            ),
+            citation="FCA Handbook CONC 7.9.10R; CONC 7.17.4R",
+        ),
+        RuleRequirement(
+            id="CL-3",
+            title="No threatening or coercive language",
+            description=(
+                "The letter does not use language that is threatening, "
+                "intimidating, oppressive, or designed to create unwarranted "
+                "anxiety. Wording is firm but proportionate."
+            ),
+            citation="FCA Handbook CONC 7.9.5G; CONC 7.9.6G",
+            severity="must",
+        ),
+        RuleRequirement(
+            id="CL-4",
+            title="Clear breakdown of debt",
+            description=(
+                "The letter sets out a clear breakdown of the amount owed: "
+                "original principal, accrued interest, charges, and the "
+                "current total balance. Where the debt has been assigned, the "
+                "original creditor is identified."
+            ),
+            citation="FCA Handbook CONC 7.5.3R",
+        ),
+        RuleRequirement(
+            id="CL-5",
+            title="Complaints procedure and FOS referral",
+            description=(
+                "The letter explains how the customer can complain to the "
+                "firm and references the customer's right to escalate to the "
+                "Financial Ombudsman Service if dissatisfied with the response."
+            ),
+            citation="FCA Handbook DISP 1.2.1R; DISP 1.6.2R",
+        ),
+        RuleRequirement(
+            id="CL-6",
+            title="Accommodation of vulnerable customers",
+            description=(
+                "The letter acknowledges customers in vulnerable circumstances "
+                "and offers a route for the customer to disclose vulnerability "
+                "or request adjustments (e.g. alternative formats, additional "
+                "time, third-party contact)."
+            ),
+            citation="FCA Handbook CONC 1.3.7R; FG21/1 (Vulnerable Customers)",
+        ),
+        RuleRequirement(
+            id="CL-7",
+            title="Forbearance and repayment options offered",
+            description=(
+                "The letter invites the customer to discuss repayment "
+                "difficulties and indicates that the firm will consider "
+                "appropriate forbearance options (affordable repayment plans, "
+                "interest/charge freezes, temporary holds)."
+            ),
+            citation="FCA Handbook CONC 7.3.4R; CONC 7.3.5G; CONC 7.7.4R",
+        ),
+        RuleRequirement(
+            id="CL-8",
+            title="No undue time pressure",
+            description=(
+                "The letter does not impose arbitrarily short response "
+                "deadlines or create undue urgency that could pressure the "
+                "customer into a hasty decision."
+            ),
+            citation="FCA Handbook CONC 7.9.6G",
+            severity="must",
+        ),
+        RuleRequirement(
+            id="CL-9",
+            title="Consumer Duty consumer-understanding outcome",
+            description=(
+                "The letter is written in clear, plain English appropriate to "
+                "the target customer, avoids legal or industry jargon without "
+                "explanation, and equips the customer to make an informed "
+                "decision about how to respond."
+            ),
+            citation="FCA Handbook PRIN 2A.5 (Consumer understanding)",
+        ),
+        RuleRequirement(
+            id="CL-10",
+            title="Multiple accessible contact channels",
+            description=(
+                "The letter offers more than one way for the customer to make "
+                "contact (e.g. phone, email, post, secure online portal) and "
+                "states accessible hours, supporting customers who may not be "
+                "able to use one channel."
+            ),
+            citation="FCA Handbook PRIN 2A.6 (Consumer support); CONC 7.9.4R",
+            severity="should",
+        ),
+        RuleRequirement(
+            id="CL-11",
+            title="Statute-barred status warning (where applicable)",
+            description=(
+                "Where the debt is or may be statute-barred under the "
+                "Limitation Act 1980, the letter makes the customer aware of "
+                "this and does not mislead them into making an acknowledgment "
+                "that would restart the limitation period."
+            ),
+            citation="FCA Handbook CONC 7.15.4R; CONC 7.15.8R",
+        ),
+        RuleRequirement(
+            id="CL-12",
+            title="Assignment notice for purchased debt",
+            description=(
+                "If the debt has been assigned to a third party (purchased), "
+                "the letter contains a clear notice of assignment identifying "
+                "the original creditor and the assignee, in line with Law of "
+                "Property Act 1925 s.136 requirements."
+            ),
+            citation="FCA Handbook CONC 6.5.2R; Law of Property Act 1925 s.136",
+            severity="should",
+        ),
+    ),
+)
+
+
 # ---- Registry --------------------------------------------------------------
 
-_REGISTRY: tuple[RulePack, ...] = (_FCA_CONSUMER_DUTY, _HMRC_AML, _UK_GDPR)
+_REGISTRY: tuple[RulePack, ...] = (
+    _FCA_CONSUMER_DUTY,
+    _HMRC_AML,
+    _UK_GDPR,
+    _UK_DEBT_COLLECTIONS_LETTER,
+)
 
 
 def list_packs() -> tuple[RulePack, ...]:
