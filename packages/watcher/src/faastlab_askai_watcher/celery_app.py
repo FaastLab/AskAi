@@ -45,6 +45,17 @@ def make_celery() -> Celery:
                 "options": {"expires": settings.watcher_poll_interval_seconds},
             }
         }
+    if settings.fos_ingest_enabled:
+        app.conf.beat_schedule = {
+            **(app.conf.beat_schedule or {}),
+            "fos-ingest": {
+                "task": "askai.watcher.fos_ingest",
+                "schedule": schedule(
+                    run_every=settings.fos_ingest_interval_seconds
+                ),
+                "options": {"expires": settings.fos_ingest_interval_seconds},
+            },
+        }
     return app
 
 

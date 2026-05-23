@@ -23,6 +23,7 @@ const CHIPS: { key: string; label: string }[] = [
   { key: "hmrc", label: "HMRC" },
   { key: "tpr", label: "TPR" },
   { key: "ico", label: "ICO" },
+  { key: "fos-decision", label: "FOS decisions" },
   { key: "uploads", label: "Your uploads" },
 ];
 import { loadSettings } from "../lib/settings";
