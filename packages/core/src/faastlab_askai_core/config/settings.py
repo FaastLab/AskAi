@@ -166,6 +166,13 @@ class Settings(BaseSettings):
     watcher_enabled: bool = False
     watcher_tenant_slug: str = "demo-public"
     watcher_poll_interval_seconds: int = 3600  # hourly by default
+
+    # FOS final decisions are published in batches and don't change often,
+    # so we ingest them on a separate, slower schedule (default: daily).
+    # Set to 0 to disable.
+    fos_ingest_enabled: bool = False
+    fos_ingest_interval_seconds: int = 24 * 3600  # daily
+    fos_ingest_max_pages: int = 10  # ~100 newest decisions per run
     watcher_user_agent: str = "FaastLab-AskAi-Watcher/0.1 (+https://faastlab.ai)"
     # Generic webhook — POSTs new events as JSON. Leave None to skip.
     watcher_webhook_url: str | None = None

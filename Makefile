@@ -183,6 +183,19 @@ smoke:  ## End-to-end smoke tests (set SMOKE_BASE_URL, SMOKE_OPENAI_KEY before r
 ingest-handbooks-dry:  ## Print what would be ingested (no fetches, no embeddings)
 	$(UV) run python -m corpus.uk_finreg.handbook_ingester --dry-run
 
+.PHONY: ingest-fos
+ingest-fos:  ## Ingest FOS final decisions: make ingest-fos [SINCE=YYYY-MM-DD] [LIMIT=N] [PAGES=N]
+	$(UV) run python -m corpus.uk_finreg.fos_ingester \
+	  $${SINCE:+--since $$SINCE} \
+	  $${LIMIT:+--limit $$LIMIT} \
+	  $${PAGES:+--max-pages $$PAGES} \
+	  $${DRY_RUN:+--dry-run} \
+	  $${FORCE:+--force}
+
+.PHONY: ingest-fos-dry
+ingest-fos-dry:  ## Preview FOS decisions that would be ingested (no PDFs, no embeddings)
+	$(UV) run python -m corpus.uk_finreg.fos_ingester --dry-run --max-pages 2
+
 # ---------- Watcher (regulator change feed) ----------
 .PHONY: watcher-poll
 watcher-poll:  ## One-shot poll of regulator feeds: make watcher-poll [REGULATOR=fca]

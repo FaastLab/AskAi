@@ -27,3 +27,24 @@ def poll() -> dict[str, Any]:
         "notifier_errors": outcome.notifier_errors,
         "per_regulator": outcome.per_regulator,
     }
+
+
+@celery_app.task(name="askai.watcher.fos_ingest")
+def fos_ingest() -> dict[str, Any]:
+    """Incremental FOS final-decisions ingest. Picks up where the last
+    run left off (most-recent fos_date already in DB) and pulls newer
+    decisions only."""
+    from faastlab_askai_core.config import get_settings
+
+    # Lazy import — keeps the watcher worker startup light when
+    # `corpus.uk_finreg` isn't available in some images.
+    from corpus.uk_finreg.fos_ingester import run_incremental
+
+    settings = get_settings()
+    exit_code = asyncio.run(
+        run_incremental(
+            tenant_slug=settings.watcher_tenant_slug,
+            max_pages=settings.fos_ingest_max_pages,
+        )
+    )
+    return {"exit_code": exit_code}

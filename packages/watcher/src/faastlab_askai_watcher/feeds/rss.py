@@ -45,12 +45,19 @@ class RssFeed(FeedSource):
         event_type: str = "publication",
         user_agent: str = "FaastLab-AskAi-Watcher/0.1 (+https://faastlab.ai)",
         timeout: httpx.Timeout = _DEFAULT_TIMEOUT,
+        exclude_url_substrings: tuple[str, ...] = (),
     ) -> None:
         self.regulator = regulator
         self.url = url
         self.event_type = event_type
         self.user_agent = user_agent
         self.timeout = timeout
+        # Drop entries whose URL contains any of these substrings BEFORE
+        # they reach the ingest notifier. Used for gov.uk firehoses
+        # (HMRC/TPR/ICO atom feeds) which mix regulatory guidance with
+        # statistics announcements, press releases, ministerial diaries,
+        # etc — none of which are useful corpus content.
+        self.exclude_url_substrings = tuple(s.lower() for s in exclude_url_substrings)
 
     async def fetch(self, since: datetime | None = None) -> list[PublicationEvent]:
         # Let the network error propagate — the orchestrator's per-feed
@@ -72,14 +79,29 @@ class RssFeed(FeedSource):
             )
 
         events: list[PublicationEvent] = []
+        excluded = 0
         for entry in parsed.entries:
             event = self._entry_to_event(entry)
             if event is None:
                 continue
             if since and event.published_at and event.published_at < since:
                 continue
+            if self._is_excluded(event.url):
+                excluded += 1
+                continue
             events.append(event)
+        if excluded:
+            log.info(
+                "watcher: %s feed dropped %d entries matching exclude_url_substrings",
+                self.regulator, excluded,
+            )
         return events
+
+    def _is_excluded(self, url: str) -> bool:
+        if not self.exclude_url_substrings or not url:
+            return False
+        low = url.lower()
+        return any(s in low for s in self.exclude_url_substrings)
 
     # ---- subclass hooks --------------------------------------------------
 
