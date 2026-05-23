@@ -87,25 +87,15 @@ async def get_principal(
     settings = get_settings()
 
     if creds is None:
-        if settings.app_env != "dev":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing bearer token",
-            )
-        # Dev convenience: bind to the default tenant.
-        try:
-            tenant_id = await _resolve_tenant_id(settings.default_tenant)
-        except TenantNotFoundError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        principal = Principal(
-            user_id="dev",
-            tenant_id=tenant_id,
-            tenant_slug=settings.default_tenant,
-            scopes=frozenset({"*"}),
-            email="dev@local",
+        # Never fall back to an anonymous principal. Unauthenticated callers
+        # get a 401, regardless of APP_ENV. Local dev should mint a real JWT
+        # (see `tests/conftest.py` / `make dev-token`) rather than rely on a
+        # magic-string env flag — fail-open auth is a CISO red line and we
+        # had a real incident from it.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
         )
-        request.state.principal = principal
-        return principal
 
     try:
         principal = await _principal_from_jwt(creds.credentials, settings)
