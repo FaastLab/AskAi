@@ -30,6 +30,7 @@ import argparse
 import asyncio
 import json
 import logging
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,6 +54,13 @@ DOWNLOADS_DIR = CORPUS_DIR / "_downloads" / "handbook"
 DEFAULT_TENANT_SLUG = "demo-public"
 USER_AGENT = "FaastLab-AskAi-HandbookIngester/0.1 (+https://faastlab.ai)"
 GOVUK_API_BASE = "https://www.gov.uk/api/content"
+
+# Minimum visible-text length (post HTML strip) for a gov.uk manual leaf
+# page to be ingested. Below this, we treat the page as a stub title/
+# navigation entry rather than substantive guidance. ~200 chars ≈ 30-40
+# words, enough to filter "Glossary" / "Works of art" / etc. while
+# keeping short-but-real definitions.
+GOVUK_MIN_LEAF_CHARS = 200
 
 
 # ---------------------------------------------------------------------------
@@ -190,10 +198,23 @@ async def _walk_govuk(
             await _walk_govuk(client, child_path, out, visited, depth + 1, max_depth)
         return
 
-    # Leaf: emit its body.
+    # Leaf: emit its body, but only if it has substantive text.
     body = (node.get("details") or {}).get("body") or ""
     if not body:
         log.warning("govuk: %s is a leaf with no body — skipping", path)
+        return
+
+    # HMRC manuals have many title-only stub pages (e.g. "Glossary",
+    # "Ongoing monitoring") whose bodies render to <20 chars of visible
+    # text. Indexing them pollutes search results with empty hits and
+    # bloats the corpus. Strip HTML and require a minimum body length.
+    text_only = re.sub(r"<[^>]+>", " ", body)
+    text_only = re.sub(r"\s+", " ", text_only).strip()
+    if len(text_only) < GOVUK_MIN_LEAF_CHARS:
+        log.info(
+            "govuk: %s leaf too thin (%d chars text after HTML strip) — skipping",
+            path, len(text_only),
+        )
         return
 
     title = node.get("title") or path
