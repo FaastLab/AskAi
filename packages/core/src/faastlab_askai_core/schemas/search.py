@@ -39,6 +39,7 @@ class AskRequest(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
     stream: bool = False
     multi_step: bool | None = None  # None = router decides
+    rerank: bool = True  # set False for faster, lower-precision answers
 
 
 class AskResponse(BaseModel):

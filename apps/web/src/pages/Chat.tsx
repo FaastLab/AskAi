@@ -17,6 +17,21 @@ export function ChatPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [hasKey, setHasKey] = useState<boolean>(!!loadSettings().openaiApiKey);
+  // Per-user toggle: rerank ON = higher precision, ~5-15s slower on CPU.
+  // Rerank OFF = pure hybrid (vector + keyword), much faster. Persisted in
+  // localStorage so the user's choice survives page reloads.
+  const [useRerank, setUseRerank] = useState<boolean>(
+    () => (typeof window !== "undefined"
+      ? window.localStorage.getItem("askai.rerank") !== "off"
+      : true),
+  );
+  const toggleRerank = () => {
+    setUseRerank((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem("askai.rerank", next ? "on" : "off"); } catch { /* ignore */ }
+      return next;
+    });
+  };
   const abortRef = useRef<AbortController | null>(null);
 
   // Pull server config; if it requires BYOK and the user has no key,
@@ -90,6 +105,7 @@ export function ChatPage() {
       for await (const event of streamAsk(question, {
         sessionId,
         signal: ctl.signal,
+        rerank: useRerank,
       })) {
         if (event.event === "token") {
           collected += event.text;
@@ -147,6 +163,23 @@ export function ChatPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={toggleRerank}
+              className={
+                "rounded px-2 py-1 text-xs font-medium border transition-colors " +
+                (useRerank
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                  : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100")
+              }
+              title={
+                useRerank
+                  ? "Reranker ON — best precision, slower on CPU (~15-25s)"
+                  : "Reranker OFF — faster (~5-10s), lower precision on tight queries"
+              }
+              aria-label="Toggle reranker"
+            >
+              {useRerank ? "Rerank: ON · Quality" : "Rerank: OFF · Fast"}
+            </button>
             <button
               onClick={() => setShowUpload(true)}
               className="rounded p-2 text-ink-700 hover:bg-slate-100"

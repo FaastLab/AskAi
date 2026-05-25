@@ -31,6 +31,7 @@ async def search(
         query=body.query,
         k=body.k,
         filters=filters,
+        rerank=body.rerank,
     )
 
     await record_action(

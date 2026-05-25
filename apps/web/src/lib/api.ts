@@ -322,7 +322,7 @@ export async function getConfig(): Promise<PublicConfig | null> {
 
 export async function* streamAsk(
   question: string,
-  opts?: { sessionId?: string | null; includeSuperseded?: boolean; signal?: AbortSignal }
+  opts?: { sessionId?: string | null; includeSuperseded?: boolean; signal?: AbortSignal; rerank?: boolean }
 ): AsyncGenerator<AskEvent> {
   const queue: AskEvent[] = [];
   let resolve: ((e: AskEvent | null) => void) | null = null;
@@ -344,6 +344,7 @@ export async function* streamAsk(
       session_id: opts?.sessionId ?? null,
       filters: { include_superseded: opts?.includeSuperseded ?? false },
       stream: true,
+      rerank: opts?.rerank ?? true,
     }),
     onmessage(msg) {
       try {
@@ -524,7 +525,7 @@ export type SearchResult = {
 /** Hybrid search (vector + BM25 + rerank) — same engine the chat uses. */
 export async function searchChunks(
   query: string,
-  opts?: { k?: number; onlyActive?: boolean }
+  opts?: { k?: number; onlyActive?: boolean; rerank?: boolean }
 ): Promise<SearchResult | null> {
   const r = await fetch("/v1/search", {
     method: "POST",
@@ -536,6 +537,7 @@ export async function searchChunks(
       query,
       k: opts?.k ?? 10,
       filters: { only_active: opts?.onlyActive ?? true },
+      rerank: opts?.rerank ?? true,
     }),
   });
   if (!r.ok) return null;
