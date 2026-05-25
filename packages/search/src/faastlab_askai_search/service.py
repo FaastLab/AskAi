@@ -67,7 +67,14 @@ class SearchService:
         k: int = 10,
         filters: SearchFilters | None = None,
         include_public_corpus: bool = True,
+        rerank: bool = True,
     ) -> SearchOutcome:
+        """Filter → retrieve → (rerank?) → score.
+
+        `rerank=False` skips the cross-encoder reranker entirely — useful
+        when the caller wants the faster hybrid-only path (no CPU-bge
+        cost). Hits are returned in RRF order with their RRF scores.
+        """
         started = perf_counter()
         # Resolve which tenants the caller can read across: their own,
         # plus the configured public regulator corpus tenant (if any and
@@ -78,18 +85,24 @@ class SearchService:
             tenant_ids = await visible_tenant_ids(tenant_id)
         else:
             tenant_ids = [tenant_id]
+        # Pull a wider candidate pool only when we're about to rerank.
+        # Without rerank, fan-out is pure cost: just retrieve k.
+        retrieve_n = max(self._retrieve_k, k * 3) if rerank else k
         retrieved = await self._retriever.retrieve(
             tenant_id=tenant_ids,
             query=query,
-            k=max(self._retrieve_k, k * 3),
+            k=retrieve_n,
             filters=filters,
         )
-        reranked = await self._reranker.rerank(query, retrieved, top_n=k)
+        if rerank:
+            hits = await self._reranker.rerank(query, retrieved, top_n=k)
+        else:
+            hits = retrieved[:k]
         elapsed_ms = (perf_counter() - started) * 1000.0
         return SearchOutcome(
             query=query,
-            hits=reranked,
-            confidence=self._confidence_fn(reranked),
+            hits=hits,
+            confidence=self._confidence_fn(hits),
             latency_ms=round(elapsed_ms, 2),
         )
 
@@ -102,9 +115,10 @@ class SearchService:
         query: str,
         k: int = 10,
         filters: SearchFilters | None = None,
+        rerank: bool = True,
     ) -> dict[str, Any]:
         outcome = await self.search(
-            tenant_id=tenant_id, query=query, k=k, filters=filters
+            tenant_id=tenant_id, query=query, k=k, filters=filters, rerank=rerank
         )
         return {
             "query": outcome.query,
