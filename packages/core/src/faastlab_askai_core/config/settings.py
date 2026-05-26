@@ -147,6 +147,16 @@ class Settings(BaseSettings):
     api_cors_origins: str = "http://localhost:3000"
     api_rate_limit_per_min: int = 60
 
+    # ---- MCP (Streamable HTTP transport) ----
+    # When set, mounts an HTTP MCP endpoint at /mcp gated by a shared
+    # bearer token. Customers point Claude Desktop / VS Code Copilot /
+    # any MCP-aware agent at https://<host>/mcp with this token. Leave
+    # blank to disable the HTTP transport (stdio still works via
+    # `python -m faastlab_askai_mcp.server`). For demo-grade deploys
+    # only — multi-tenant scoping comes later (today: pinned to
+    # default_tenant on whichever instance the API runs on).
+    mcp_shared_token: str | None = None
+
     # ---- Observability ----
     observability_provider: ObservabilityProvider = "langfuse"
     langfuse_public_key: str | None = None

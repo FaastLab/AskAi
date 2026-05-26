@@ -25,13 +25,62 @@ to **one tenant** via the `ASKAI_TENANT` env var (slug or UUID). For
 multi-tenant agent deployments, run multiple stdio servers or use the
 REST API with a JWT instead.
 
-## Run it
+## Two transports
 
-Stdio (development):
+| Transport | When to use | Where the server runs |
+|---|---|---|
+| **stdio** | Desktop tools (Claude Desktop / Cursor) on a user's own laptop | The client spawns it as a subprocess |
+| **Streamable HTTP** | Hosted / cloud / agents over a URL | Mounted at `/mcp` inside the AskAi API |
+
+## Run it (stdio, development)
 
 ```bash
 ASKAI_TENANT=demo-public uv run python -m faastlab_askai_mcp.server
 ```
+
+## Run it (Streamable HTTP, production)
+
+The HTTP transport is **mounted automatically by `faastlab-askai-api`**
+at `/mcp` whenever `MCP_SHARED_TOKEN` is set in `.env`. No separate
+process to manage — same uvicorn worker that serves `/v1/*` also
+serves `/mcp`.
+
+Enable it:
+
+```bash
+# In your .env on the host running the API:
+MCP_SHARED_TOKEN=$(openssl rand -hex 32)
+# Then restart:
+docker compose up -d --force-recreate api
+```
+
+Smoke-test the endpoint:
+
+```bash
+curl -i https://askai.yourhost.com/mcp/   # → 401 without bearer
+curl -i https://askai.yourhost.com/mcp/ -H "Authorization: Bearer $MCP_SHARED_TOKEN"   # → 200 (initialize handshake)
+```
+
+Wire it to Claude Desktop (no local install, no SSH):
+
+```json
+{
+  "mcpServers": {
+    "askai-finreg": {
+      "url": "https://askai.yourhost.com/mcp",
+      "headers": { "Authorization": "Bearer <MCP_SHARED_TOKEN>" }
+    }
+  }
+}
+```
+
+The tools (`search_documents`, `ask`, …) are identical between the
+stdio and HTTP transports — only the pipe changes.
+
+**Auth model.** v1 ships single-shared-token auth — suitable for
+closed-beta and design-partner deployments where the customer is on
+the other end of an NDA. For multi-tenant production SaaS, plan to
+upgrade to per-tenant OAuth 2.1 with scoped access tokens.
 
 ## Wire to Claude Desktop
 
