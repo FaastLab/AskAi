@@ -12,7 +12,8 @@ dependencies = [
   "faastlab-askai-askai",
   "faastlab-askai-summarisation",
   "faastlab-askai-indexing",
-  "mcp>=1.1",                # official Anthropic Python MCP SDK
+  "mcp>=1.9",                # official Anthropic Python MCP SDK (streamable_http_manager since 1.5)
+  "starlette>=0.41",         # used by the HTTP transport wrapper
 ]
 
 [dependency-groups]

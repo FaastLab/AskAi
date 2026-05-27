@@ -35,6 +35,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.factory import get_reranker
+from faastlab_askai_mcp.http_app import create_mcp_handler
 
 from faastlab_askai_api.middleware.audit import AuditMiddleware
 from faastlab_askai_api.middleware.byok import BYOKMiddleware
@@ -78,7 +79,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # checks immediately; first /v1/ask waits at most for the reranker
     # rather than always paying ~10s on cold start.
     asyncio.create_task(_prewarm_reranker())
-    yield
+    # MCP HTTP session manager — only runs if MCP_SHARED_TOKEN is set.
+    # The context manager owns a small pool of background tasks for
+    # SSE session bookkeeping; we enter it here so it starts/stops
+    # with the API process.
+    mcp_lifespan = app.state.mcp_lifespan_cm
+    if mcp_lifespan is not None:
+        async with mcp_lifespan():
+            yield
+    else:
+        yield
 
 
 def create_app() -> FastAPI:
@@ -122,6 +132,15 @@ def create_app() -> FastAPI:
     app.include_router(ask.router, prefix="/v1")
     app.include_router(sessions.router, prefix="/v1")
     app.include_router(validators_route.router, prefix="/v1")
+
+    # ---- MCP HTTP transport (mounted only if configured) ----
+    # Build the MCP handler + lifespan once at app-construction time.
+    # When MCP_SHARED_TOKEN is empty the handler still mounts but
+    # returns 503 — so an accidental deploy without the env var can't
+    # silently expose the corpus.
+    mcp_handler, mcp_lifespan_cm = create_mcp_handler()
+    app.mount("/mcp", mcp_handler)
+    app.state.mcp_lifespan_cm = mcp_lifespan_cm if settings.mcp_shared_token else None
 
     return app
 

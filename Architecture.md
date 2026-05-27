@@ -94,6 +94,10 @@ Key endpoints:
 ### MCP Server
 [Model Context Protocol](https://modelcontextprotocol.io/) server exposing the REST capabilities as tools. Any MCP-compatible agent (Claude Desktop, Cursor, custom LangGraph agents) can plug in instantly.
 
+Two transports:
+- **stdio** — for local desktop tools that spawn the server as a subprocess.
+- **Streamable HTTP** — mounted at `/mcp` inside the FastAPI app, gated by `MCP_SHARED_TOKEN`. Customers point Claude Desktop / VS Code Copilot / their agentic stack at `https://<host>/mcp` with a bearer token. No subprocess, no SSH, works across networks.
+
 Tools exposed:
 - `search_documents`
 - `get_document`
