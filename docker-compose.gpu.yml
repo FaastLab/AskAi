@@ -20,6 +20,34 @@
 #   nvidia-ctk runtime configure --runtime=docker && systemctl restart docker
 
 services:
+  # Belt-and-braces safety: refuse to start the GPU stack on a host that
+  # doesn't actually have a usable GPU. If someone accidentally invokes
+  # `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
+  # on the CPU VM, this container fails immediately (either Docker can't
+  # satisfy the GPU device reservation, or `nvidia-smi` exits non-zero
+  # inside the container) and api/worker/ollama never start — so the
+  # running CPU stack on that host stays untouched.
+  gpu-check:
+    image: nvidia/cuda:12.4.1-base-ubuntu22.04
+    container_name: askai-gpu-check
+    profiles: ["app"]
+    command:
+      - bash
+      - -c
+      - >
+        nvidia-smi
+        || (echo 'ERROR: NVIDIA GPU not visible to this container.'
+            && echo 'Are you on a GPU host with NVIDIA Container Toolkit installed?'
+            && exit 1)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"
+
   api:
     build:
       dockerfile: Dockerfile.gpu     # override the CPU Dockerfile
@@ -30,6 +58,8 @@ services:
       # ignored when LLM_PROVIDER=ollama / EMBEDDINGS_PROVIDER=ollama.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
     depends_on:
+      gpu-check:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -55,6 +85,8 @@ services:
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
     depends_on:
+      gpu-check:
+        condition: service_completed_successfully
       api:
         condition: service_started
       ollama:
@@ -84,6 +116,9 @@ services:
     environment:
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
       OLLAMA_HOST: 0.0.0.0:11434
+    depends_on:
+      gpu-check:
+        condition: service_completed_successfully
     volumes:
       - ollama-data:/root/.ollama
     ports:
