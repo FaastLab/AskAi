@@ -1,0 +1,101 @@
+# Override layer — apply on top of docker-compose.yml to switch the
+# api + worker containers to the GPU image and expose the host GPUs to
+# them. Adds an `ollama` service so the sovereign LLM (Qwen / Llama)
+# answers and embeddings stay inside the pod.
+#
+# Usage (on the GPU host):
+#
+#   docker compose \
+#       -f docker-compose.yml \
+#       -f docker-compose.gpu.yml \
+#       --env-file .env \
+#       --env-file .env.gpu \
+#       --profile app \
+#       up -d
+#
+# The CPU host (askai.faastlab.ai) is unaffected — it keeps using
+# `docker compose up -d` against the plain docker-compose.yml.
+#
+# Host prereq: NVIDIA driver + NVIDIA Container Toolkit
+#   nvidia-ctk runtime configure --runtime=docker && systemctl restart docker
+
+services:
+  api:
+    build:
+      dockerfile: Dockerfile.gpu     # override the CPU Dockerfile
+    image: faastlab/askai:gpu        # different tag so we never mix images
+    environment:
+      # Point the api at the in-pod Ollama for both LLM + embeddings,
+      # unless .env.gpu overrides. The CPU env file's OPENAI_API_KEY is
+      # ignored when LLM_PROVIDER=ollama / EMBEDDINGS_PROVIDER=ollama.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    # NVIDIA Container Toolkit — reservation-style GPU access (modern
+    # compose v2+; works alongside `runtime: nvidia` legacy if either is
+    # present). `count: all` means every visible GPU; pin to a single
+    # device with `device_ids: ["0"]` if you ever colocate two stacks.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  worker:
+    image: faastlab/askai:gpu        # share the same GPU image
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      api:
+        condition: service_started
+      ollama:
+        condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Sovereign LLM + embeddings server. Pre-pull the model you want on
+  # first boot:
+  #
+  #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+  #       exec ollama ollama pull qwen2.5:14b
+  #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+  #       exec ollama ollama pull bge-m3        # embeddings
+  #
+  # `OLLAMA_KEEP_ALIVE=24h` keeps the loaded model resident so the
+  # first-after-idle query isn't a 30s cold-start during a demo.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: askai-ollama
+    profiles: ["app"]
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  ollama-data:

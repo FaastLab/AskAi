@@ -1,0 +1,87 @@
+# GPU image — same FastAPI app / Celery worker as the CPU build,
+# but with CUDA-enabled PyTorch so bge-reranker (and any future on-GPU
+# embedding / LLM call) runs on the device instead of the CPU.
+#
+# Pairs with docker-compose.gpu.yml (override) and .env.gpu. The CPU
+# `Dockerfile` is unchanged and continues to be used by the existing
+# `askai.faastlab.ai` stack — this image only ships to GPU hosts.
+#
+# Host requirements: NVIDIA driver + NVIDIA Container Toolkit installed
+# (`nvidia-ctk runtime configure --runtime=docker`). The compose override
+# handles `deploy.resources.reservations.devices` so containers see the
+# GPU at runtime.
+
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    DEBIAN_FRONTEND=noninteractive \
+    PATH="/app/.venv/bin:/root/.local/bin:${PATH}"
+
+# Python 3.12 (matches `requires-python = ">=3.12,<3.13"` across packages)
+# plus the same parser system libs the CPU image needs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+        ca-certificates \
+        curl \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        build-essential \
+        libpoppler-cpp-dev \
+        poppler-utils \
+        tesseract-ocr \
+        libmagic1 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -s /root/.local/bin/uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# ---- Layer 1: dependency manifests only (highly cacheable) ------------
+COPY pyproject.toml uv.lock* ./
+COPY packages/core/pyproject.toml             packages/core/pyproject.toml
+COPY packages/indexing/pyproject.toml         packages/indexing/pyproject.toml
+COPY packages/search/pyproject.toml           packages/search/pyproject.toml
+COPY packages/summarisation/pyproject.toml    packages/summarisation/pyproject.toml
+COPY packages/askai/pyproject.toml            packages/askai/pyproject.toml
+COPY packages/api/pyproject.toml              packages/api/pyproject.toml
+COPY packages/mcp/pyproject.toml              packages/mcp/pyproject.toml
+COPY packages/sdk/pyproject.toml              packages/sdk/pyproject.toml
+COPY packages/validators/pyproject.toml       packages/validators/pyproject.toml
+COPY packages/watcher/pyproject.toml          packages/watcher/pyproject.toml
+
+RUN for pkg in core indexing search summarisation askai api mcp sdk validators watcher; do \
+      mkdir -p packages/$pkg/src/faastlab_askai_$pkg && \
+      touch packages/$pkg/src/faastlab_askai_$pkg/__init__.py && \
+      touch packages/$pkg/README.md; \
+    done
+
+# Sync deps (pins from uv.lock — CPU torch from pyproject's default
+# resolution) and then OVERRIDE torch with the CUDA wheel. We do it in
+# two steps so the lockfile-frozen sync stays fast and reproducible,
+# and the GPU-specific layer is small + isolated.
+RUN uv sync --frozen --no-dev --all-packages
+RUN uv pip install --reinstall --no-cache \
+        --index-url https://download.pytorch.org/whl/cu124 \
+        torch
+
+# Sanity-check that the CUDA wheel actually installed (build fails
+# loudly if the index served the CPU wheel by accident).
+RUN python -c "import torch; assert '+cu' in torch.__version__, \
+    f'expected CUDA torch, got {torch.__version__}'; print('torch:', torch.__version__)"
+
+# ---- Layer 2: actual source (changes often, fast layer) ---------------
+COPY packages packages
+COPY corpus corpus
+
+EXPOSE 8000
+
+CMD ["uvicorn", "faastlab_askai_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
