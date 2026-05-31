@@ -11,7 +11,20 @@
 # handles `deploy.resources.reservations.devices` so containers see the
 # GPU at runtime.
 
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS base
+# Build args — override at build time to retarget different GPU families:
+#   --build-arg TORCH_CUDA=cu128         (default; supports Blackwell + back-compat)
+#   --build-arg TORCH_CUDA=cu124         (older — Ampere/Ada only; smaller wheel)
+#   --build-arg CUDA_BASE=12.4.1         (must match your host driver capability)
+#
+# RTX 6000 PRO Blackwell / RTX 5090 = sm_120 → need cu128 (PyTorch 2.6+).
+# A100 / H100 / 3090 / 4090 all run fine on cu128 too, so cu128 is the
+# safe default. Drop to cu124 only if you need a smaller wheel on older
+# cards.
+ARG CUDA_BASE=12.6.2
+ARG TORCH_CUDA=cu128
+
+FROM nvidia/cuda:${CUDA_BASE}-cudnn-runtime-ubuntu22.04 AS base
+ARG TORCH_CUDA
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -70,7 +83,7 @@ RUN for pkg in core indexing search summarisation askai api mcp sdk validators w
 # and the GPU-specific layer is small + isolated.
 RUN uv sync --frozen --no-dev --all-packages
 RUN uv pip install --reinstall --no-cache \
-        --index-url https://download.pytorch.org/whl/cu124 \
+        --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
         torch
 
 # Sanity-check that the CUDA wheel actually installed (build fails

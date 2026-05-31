@@ -125,6 +125,30 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml down
 # if the pod is going away.
 ```
 
+## GPU architecture support
+
+The default build (`TORCH_CUDA=cu128`) covers every CUDA-capable GPU
+you're likely to spin up:
+
+| Card | Arch | sm_ | Default cu128 build |
+|---|---|---|---|
+| RTX 3090 / 3090 Ti | Ampere | sm_86 | ✅ |
+| RTX 4090 | Ada Lovelace | sm_89 | ✅ |
+| RTX 6000 Ada / L40 / L40S | Ada Lovelace | sm_89 | ✅ |
+| A100 80GB | Ampere | sm_80 | ✅ |
+| H100 80GB | Hopper | sm_90 | ✅ |
+| RTX 5090 | Blackwell | sm_120 | ✅ |
+| RTX 6000 PRO Blackwell | Blackwell | sm_120 | ✅ |
+| B100 / B200 | Blackwell | sm_100 | ✅ |
+
+A smaller `cu124` wheel still works on Ampere/Ada cards if you want
+the build a bit lighter, but **it will fail at runtime on Blackwell**
+(`no kernel image is available for execution on the device`).
+Override via build-arg if needed:
+```bash
+docker compose ... build api worker --build-arg TORCH_CUDA=cu124
+```
+
 ## Cost reference
 
 Per-hour pay-as-you-go (RunPod community pricing, May 2026):

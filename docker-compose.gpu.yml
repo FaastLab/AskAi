@@ -51,6 +51,12 @@ services:
   api:
     build:
       dockerfile: Dockerfile.gpu     # override the CPU Dockerfile
+      args:
+        # cu128 = Blackwell-capable (RTX 5090, RTX 6000 PRO Blackwell)
+        # AND back-compatible with Ampere/Ada (A100, H100, 3090, 4090).
+        # Override via .env.gpu only if you need to pin an older wheel.
+        TORCH_CUDA: ${TORCH_CUDA:-cu128}
+        CUDA_BASE: ${CUDA_BASE:-12.6.2}
     image: faastlab/askai:gpu        # different tag so we never mix images
     environment:
       # Point the api at the in-pod Ollama for both LLM + embeddings,
