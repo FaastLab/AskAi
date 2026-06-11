@@ -113,6 +113,11 @@ class Settings(BaseSettings):
     # HF Text-Embeddings-Inference, e.g. http://100.92.179.115:8081 — bge-m3
     # reranker, GPU-served. No model field: TEI serves one model per process.
     reranker_base_url: str | None = None
+    # Max inputs per TEI rerank request. TEI returns HTTP 413 above its
+    # --max-client-batch-size (default 32); the adapter batches to this size
+    # and merges. Keep <= the server's cap; raise both together for fewer
+    # round-trips on large candidate pools.
+    reranker_max_batch_size: int = 32
 
     # ---- Vector store ----
     vector_store: VectorStoreProvider = "pgvector"
