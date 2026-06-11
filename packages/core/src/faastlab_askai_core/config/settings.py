@@ -37,7 +37,7 @@ LLMProvider = Literal["openai", "azure", "anthropic", "bedrock", "ollama"]
 EmbeddingsProvider = Literal["openai", "azure", "cohere", "huggingface", "ollama"]
 StorageProvider = Literal["minio", "s3", "azure-blob"]
 VectorStoreProvider = Literal["pgvector", "qdrant", "azure-ai-search", "pinecone"]
-RerankerProvider = Literal["cohere", "bge", "none"]
+RerankerProvider = Literal["cohere", "bge", "tei", "none"]
 AuthProvider = Literal["jwt", "oidc", "entra", "auth0"]
 ObservabilityProvider = Literal["langfuse", "langsmith", "none"]
 PdfParser = Literal["pymupdf", "unstructured", "docling"]
@@ -98,16 +98,21 @@ class Settings(BaseSettings):
     embeddings_dim: int = 1536
 
     # ---- Reranker ----
-    # Default 'bge' — BAAI/bge-reranker-large (MIT licence). 100% OSS,
-    # runs locally via sentence-transformers + torch (install with the
-    # [bge-reranker] extra). 'cohere' is a managed alternative. 'none'
-    # is pass-through for lean installs without torch.
+    # 'bge'    — local cross-encoder via sentence-transformers + torch (CPU
+    #            heavy on a VM). 'cohere' — managed. 'tei' — sovereign: calls
+    #            the GPU box's TEI reranker over HTTP (fast, no torch on the
+    #            VM). 'none' — pass-through. For the sovereign CPU-VM + GPU
+    #            split, use 'tei' with RERANKER_BASE_URL → the GPU :8081.
     reranker_provider: RerankerProvider = "bge"
     cohere_api_key: str | None = None
     # bge-reranker-base is ~5x faster than -large on CPU with comparable
     # quality on regulator Q&A. Switch to -large only if you've got a GPU
     # or the latency budget. -v2-m3 is best quality but heavier.
     bge_reranker_model: str = "BAAI/bge-reranker-base"
+    # TEI reranker endpoint (provider='tei'). The GPU box's bge-reranker on
+    # HF Text-Embeddings-Inference, e.g. http://100.92.179.115:8081 — bge-m3
+    # reranker, GPU-served. No model field: TEI serves one model per process.
+    reranker_base_url: str | None = None
 
     # ---- Vector store ----
     vector_store: VectorStoreProvider = "pgvector"

@@ -148,10 +148,14 @@ def get_reranker() -> _RerankerLike:
         from faastlab_askai_search.rerankers.bge import BgeReranker
 
         return BgeReranker(settings)
+    if provider == "tei":
+        from faastlab_askai_search.rerankers import TeiReranker
+
+        return TeiReranker(settings)
 
     raise AdapterNotFoundError(
         f"Reranker provider {provider!r} not yet wired up "
-        "(supported: none, cohere, bge)"
+        "(supported: none, cohere, bge, tei)"
     )
 
 
