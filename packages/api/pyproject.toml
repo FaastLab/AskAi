@@ -12,6 +12,7 @@ dependencies = [
   "faastlab-askai-askai",
   "faastlab-askai-summarisation",
   "faastlab-askai-indexing",
+  "faastlab-askai-mcp",            # mounted as /mcp HTTP transport
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
   "pyjwt>=2.10",

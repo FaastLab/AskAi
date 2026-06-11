@@ -95,115 +95,115 @@ async def _fetch_govuk(
         return None
 
 
-async def _crawl_govuk_manual(
-    client: httpx.AsyncClient, root_path: str
-) -> list[dict[str, str]]:
-    """Walk a gov.uk multi-chapter manual; return one entry per chapter.
+def _govuk_child_paths(
+    node: dict[str, Any],
+) -> list[tuple[str, str | None, str | None]]:
+    """Extract child-section paths from a gov.uk Content API node.
 
-    gov.uk uses TWO different structures for multi-page content:
+    gov.uk uses two different structures for multi-page content:
+      1. HMRC Internal Manuals store children under
+         `details.child_section_groups[].child_sections[]`.
+      2. Generic guidance puts them under `links.child_sections` or
+         `links.sections`.
 
-    1. **HMRC Internal Manuals** (cryptoassets-manual, ECSH, SAO, etc.)
-       store chapters under
-       `details.child_section_groups[].child_sections[]`. Each
-       child_section has `base_path` and (often) inline `description`
-       text. The full chapter body must be fetched separately via the
-       Content API for each child path.
-
-    2. **Generic guidance pages** put chapter links under
-       `links.child_sections` or `links.sections`.
-
-    We try both. If neither exists, fall back to the root page's body.
+    Returns (base_path, title, description) tuples — or [] if leaf.
     """
-    root = await _fetch_govuk(client, root_path)
-    if root is None:
-        return []
+    out: list[tuple[str, str | None, str | None]] = []
 
-    chapters: list[dict[str, str]] = []
-
-    # 1. HMRC-style manuals: details.child_section_groups[].child_sections
-    details = root.get("details") or {}
-    child_section_groups = details.get("child_section_groups") or []
-    section_paths: list[tuple[str, str | None, str | None]] = []  # (path, title, description)
-    for group in child_section_groups:
+    details = node.get("details") or {}
+    for group in details.get("child_section_groups") or []:
         for sec in (group or {}).get("child_sections") or []:
             base_path = sec.get("base_path")
-            if not base_path:
-                continue
-            section_paths.append(
-                (base_path, sec.get("title"), sec.get("description"))
-            )
+            if base_path:
+                out.append(
+                    (base_path, sec.get("title"), sec.get("description"))
+                )
 
-    # 2. Generic guidance: links.child_sections / links.sections
-    if not section_paths:
+    if not out:
         for sec in (
-            root.get("links", {}).get("child_sections")
-            or root.get("links", {}).get("sections")
+            (node.get("links") or {}).get("child_sections")
+            or (node.get("links") or {}).get("sections")
             or []
         ):
             base_path = sec.get("base_path")
-            if not base_path:
-                continue
-            section_paths.append(
-                (base_path, sec.get("title"), sec.get("description"))
-            )
-
-    # 3. Single-page manual: emit the root.
-    if not section_paths:
-        body = details.get("body") or ""
-        if body:
-            chapters.append(
-                {
-                    "title": root.get("title") or root_path,
-                    "url": "https://www.gov.uk" + (root.get("base_path") or root_path),
-                    "html": _wrap_html(body, root.get("title") or ""),
-                }
-            )
-        else:
-            log.warning(
-                "govuk: %s has no child_section_groups, no links.child_sections, "
-                "and no body — nothing to ingest",
-                root_path,
-            )
-        return chapters
-
-    log.info(
-        "govuk: %s has %d chapters — crawling each",
-        root_path, len(section_paths),
-    )
-
-    # Fetch each chapter's full HTML body. We DO NOT recurse further
-    # (chapters can themselves have sub-chapters in some HMRC manuals);
-    # this gets us coverage without exploding the OpenAI bill on v1.
-    for child_path, child_title, child_desc in section_paths:
-        node = await _fetch_govuk(client, child_path)
-        if node is None:
-            # Chapter index existed but the chapter itself didn't fetch —
-            # fall back to the description text so we don't lose the
-            # chapter title entirely.
-            if child_desc:
-                chapters.append(
-                    {
-                        "title": child_title or child_path,
-                        "url": "https://www.gov.uk" + child_path,
-                        "html": _wrap_html(
-                            f"<p>{child_desc}</p>", child_title or child_path
-                        ),
-                    }
+            if base_path:
+                out.append(
+                    (base_path, sec.get("title"), sec.get("description"))
                 )
-            continue
-        body = (node.get("details") or {}).get("body") or ""
-        if not body:
-            continue
-        title = node.get("title") or child_title or child_path
-        chapters.append(
-            {
-                "title": title,
-                "url": "https://www.gov.uk" + child_path,
-                "html": _wrap_html(body, title),
-            }
-        )
 
-    return chapters
+    return out
+
+
+async def _crawl_govuk_manual(
+    client: httpx.AsyncClient,
+    root_path: str,
+    *,
+    max_depth: int = 6,
+) -> list[dict[str, str]]:
+    """Recursively walk a gov.uk manual, returning one entry per LEAF page.
+
+    HMRC manuals (cryptoassets-manual, ECSH, SAO, etc.) are nested:
+    manual → chapter → section → rule page. The earlier implementation
+    only fetched one level deep, so we collected chapter INDEX pages
+    (containing only short descriptions) instead of the actual rule
+    text. This recurses until we hit a leaf (no further child_sections),
+    then emits that leaf's body.
+
+    Cycle-safe via `visited`; bounded by `max_depth` to keep runaway
+    structures from melting the OpenAI bill if gov.uk ever introduces a
+    pathological loop.
+    """
+    leaves: list[dict[str, str]] = []
+    visited: set[str] = set()
+    await _walk_govuk(client, root_path, leaves, visited, 0, max_depth)
+    return leaves
+
+
+async def _walk_govuk(
+    client: httpx.AsyncClient,
+    path: str,
+    out: list[dict[str, str]],
+    visited: set[str],
+    depth: int,
+    max_depth: int,
+) -> None:
+    """One step of the recursive walk. Mutates `out` and `visited`."""
+    if path in visited:
+        return
+    visited.add(path)
+    if depth > max_depth:
+        log.warning("govuk: hit max_depth=%d at %s — stopping branch", max_depth, path)
+        return
+
+    node = await _fetch_govuk(client, path)
+    if node is None:
+        return
+
+    children = _govuk_child_paths(node)
+
+    if children:
+        log.info(
+            "govuk: %s has %d child sections (depth=%d) — recursing",
+            path, len(children), depth,
+        )
+        for child_path, _, _ in children:
+            await _walk_govuk(client, child_path, out, visited, depth + 1, max_depth)
+        return
+
+    # Leaf: emit its body.
+    body = (node.get("details") or {}).get("body") or ""
+    if not body:
+        log.warning("govuk: %s is a leaf with no body — skipping", path)
+        return
+
+    title = node.get("title") or path
+    out.append(
+        {
+            "title": title,
+            "url": "https://www.gov.uk" + path,
+            "html": _wrap_html(body, title),
+        }
+    )
 
 
 def _wrap_html(body: str, title: str) -> str:

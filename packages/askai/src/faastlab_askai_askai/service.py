@@ -63,13 +63,14 @@ class AskAiService:
         question: str,
         session_id: UUID | None = None,
         filters: SearchFilters | None = None,
+        rerank: bool = True,
     ) -> AskOutcome:
         started = perf_counter()
         session_uuid, history = await self._memory.load(
             tenant_id=tenant_id, session_id=session_id
         )
 
-        retrieval = await self._do_retrieval(tenant_id, question, filters)
+        retrieval = await self._do_retrieval(tenant_id, question, filters, rerank)
         retrieval_ms = retrieval.latency_ms
 
         result = await self._chain.answer(
@@ -108,6 +109,7 @@ class AskAiService:
         question: str,
         session_id: UUID | None = None,
         filters: SearchFilters | None = None,
+        rerank: bool = True,
     ) -> AsyncIterator[dict[str, object]]:
         """Yield JSON-friendly events:
             {"event": "retrieve", "confidence": 0.42}
@@ -120,7 +122,7 @@ class AskAiService:
         )
         t_mem = perf_counter()
 
-        retrieval = await self._do_retrieval(tenant_id, question, filters)
+        retrieval = await self._do_retrieval(tenant_id, question, filters, rerank)
         t_retr = perf_counter()
         log.info(
             "stream_ask: memory=%.0fms retrieve=%.0fms hits=%d conf=%.3f",
@@ -181,10 +183,12 @@ class AskAiService:
         tenant_id: UUID,
         question: str,
         filters: SearchFilters | None,
+        rerank: bool = True,
     ) -> SearchOutcome:
         return await self._search.search(
             tenant_id=tenant_id,
             query=question,
             k=self._retrieve_k,
             filters=filters,
+            rerank=rerank,
         )

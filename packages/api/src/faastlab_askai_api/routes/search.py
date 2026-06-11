@@ -38,6 +38,7 @@ async def search(
         query=body.query,
         k=body.k,
         filters=filters,
+        rerank=body.rerank,
     )
 
     # Ledger the query-embedding spend so search counts toward request quota.

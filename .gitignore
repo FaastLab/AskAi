@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.gpu.example
 
 # ---- Private context (never commit) ----
 Claude.md

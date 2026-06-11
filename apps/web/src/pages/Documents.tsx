@@ -46,6 +46,20 @@ export function DocumentsPage() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  // Per-user toggle: rerank ON = higher precision, ~5-15s slower on CPU.
+  // Shared localStorage key with Chat page so the choice carries across.
+  const [useRerank, setUseRerank] = useState<boolean>(
+    () => (typeof window !== "undefined"
+      ? window.localStorage.getItem("askai.rerank") !== "off"
+      : true),
+  );
+  const toggleRerank = () => {
+    setUseRerank((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem("askai.rerank", next ? "on" : "off"); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const [selectedId, setSelectedId] = useState<string | null>(
     selectedFromUrl ?? null
@@ -165,7 +179,7 @@ export function DocumentsPage() {
     // was running on the left.
     setSelectedId(null);
     try {
-      const result = await searchChunks(q, { k: 12, onlyActive: true });
+      const result = await searchChunks(q, { k: 12, onlyActive: true, rerank: useRerank });
       if (ctl.signal.aborted) return;
       if (!result) {
         setSearchError("Search failed — check your OpenAI key or try again.");
@@ -242,6 +256,24 @@ export function DocumentsPage() {
                 Clear
               </button>
             )}
+            <button
+              type="button"
+              onClick={toggleRerank}
+              disabled={searchBusy}
+              className={
+                "rounded-md px-3 py-2 text-xs font-medium border transition-colors " +
+                (useRerank
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                  : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100")
+              }
+              title={
+                useRerank
+                  ? "Reranker ON — best precision, slower on CPU (~15-25s)"
+                  : "Reranker OFF — faster (~5-10s), lower precision on tight queries"
+              }
+            >
+              {useRerank ? "Rerank: ON · Quality" : "Rerank: OFF · Fast"}
+            </button>
           </form>
           {searchError && (
             <div className="mt-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">

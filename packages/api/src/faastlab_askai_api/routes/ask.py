@@ -77,6 +77,7 @@ async def ask(
                 question=body.query,
                 session_id=body.session_id,
                 filters=filters,
+                rerank=body.rerank,
             )
         )
 
@@ -86,6 +87,7 @@ async def ask(
         question=body.query,
         session_id=body.session_id,
         filters=filters,
+        rerank=body.rerank,
     )
 
     # Compliance audit: capture the question, a summary of the answer,
@@ -145,6 +147,7 @@ async def _sse_iter(
     question: str,
     session_id,
     filters: SearchFilters,
+    rerank: bool = True,
 ) -> AsyncIterator[dict[str, str]]:
     import json
 
@@ -155,6 +158,7 @@ async def _sse_iter(
         question=question,
         session_id=session_id,
         filters=filters,
+        rerank=rerank,
     ):
         if event.get("event") == "token" and event.get("text"):
             answer_parts.append(str(event["text"]))
