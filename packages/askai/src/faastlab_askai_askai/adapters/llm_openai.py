@@ -55,7 +55,9 @@ class OpenAIChatLLM:
                 "No OpenAI API key — set OPENAI_API_KEY in env or send "
                 "X-OpenAI-API-Key header (BYOK)."
             )
-        return AsyncOpenAI(api_key=api_key)
+        # base_url=None → SDK default (api.openai.com). Set LLM_BASE_URL to a
+        # sovereign vLLM endpoint to run off our own GPU.
+        return AsyncOpenAI(api_key=api_key, base_url=s.llm_base_url)
 
     def _active_client(self) -> AsyncOpenAI:
         """Return a client honouring per-request BYOK if present, else default."""
@@ -93,7 +95,7 @@ class OpenAIChatLLM:
                     {"role": m.role, "content": m.content} for m in messages
                 ],
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._reraise(exc)
         return response.choices[0].message.content or ""
 
@@ -115,7 +117,7 @@ class OpenAIChatLLM:
                 ],
                 stream=True,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._reraise(exc)
 
         async for chunk in stream:

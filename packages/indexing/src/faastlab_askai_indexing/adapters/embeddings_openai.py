@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from openai import AsyncOpenAI, AsyncAzureOpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -73,7 +73,9 @@ class OpenAIEmbeddings:
                 "No OpenAI API key — set OPENAI_API_KEY or send "
                 "X-OpenAI-API-Key header (BYOK)."
             )
-        return AsyncOpenAI(api_key=api_key)
+        # base_url=None → SDK default (api.openai.com). Set EMBEDDINGS_BASE_URL
+        # to a sovereign TEI endpoint (bge-m3) to run off our own GPU.
+        return AsyncOpenAI(api_key=api_key, base_url=s.embeddings_base_url)
 
     def _active_client(self) -> _AsyncOpenAIType:
         """Return a client honouring per-request BYOK if set, else the default."""
@@ -112,7 +114,7 @@ class OpenAIEmbeddings:
             if self._model.startswith("text-embedding-3"):
                 kwargs["dimensions"] = self._dim
             response = await self._active_client().embeddings.create(**kwargs)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — translate to our hierarchy
+        except Exception as exc:
             raise EmbeddingError(f"OpenAI embeddings call failed: {exc}") from exc
 
         vectors = [item.embedding for item in response.data]
