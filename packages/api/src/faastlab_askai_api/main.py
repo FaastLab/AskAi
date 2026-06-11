@@ -49,6 +49,7 @@ from faastlab_askai_api.routes import (
     auth,
     config as config_route,
     documents,
+    gateway as gateway_route,
     health,
     ingest,
     search,
@@ -131,6 +132,7 @@ def create_app() -> FastAPI:
     app.include_router(search.router, prefix="/v1")
     app.include_router(ask.router, prefix="/v1")
     app.include_router(sessions.router, prefix="/v1")
+    app.include_router(gateway_route.router, prefix="/v1")
     app.include_router(validators_route.router, prefix="/v1")
 
     # ---- MCP HTTP transport (mounted only if configured) ----
