@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-
-from faastlab_askai_core.adapters import Principal
-from faastlab_askai_core.schemas.search import SearchRequest, SearchResult
-from faastlab_askai_core.schemas.chunk import ChunkWithScore
-from faastlab_askai_search.filters import SearchFilters
-from faastlab_askai_search.service import SearchService
+from fastapi import APIRouter, Depends, Request
 
 from faastlab_askai_api.audit_helper import record_action
-from faastlab_askai_api.middleware.principal import get_principal
+from faastlab_askai_api.middleware.quota import enforce_quota
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_api.routes.ask import _require_byok_if_configured
+from faastlab_askai_core.adapters import Principal
+from faastlab_askai_core.config import get_settings
+from faastlab_askai_core.gateway import (
+    GatewayContext,
+    record_usage,
+    usage_from_text,
+)
+from faastlab_askai_core.schemas.chunk import ChunkWithScore
+from faastlab_askai_core.schemas.search import SearchRequest, SearchResult
+from faastlab_askai_search.filters import SearchFilters
+from faastlab_askai_search.service import SearchService
 
 router = APIRouter(tags=["search"])
 _service = SearchService()
@@ -22,7 +27,9 @@ _service = SearchService()
 @router.post("/search", response_model=SearchResult)
 async def search(
     body: SearchRequest,
+    request: Request,
     principal: Principal = Depends(require_active_trial_or_subscription),
+    _quota: Principal = Depends(enforce_quota("search")),
 ) -> SearchResult:
     _require_byok_if_configured()
     filters = _build_filters(body.filters)
@@ -31,6 +38,25 @@ async def search(
         query=body.query,
         k=body.k,
         filters=filters,
+    )
+
+    # Ledger the query-embedding spend so search counts toward request quota.
+    settings = get_settings()
+    await record_usage(
+        GatewayContext(
+            tenant_id=principal.tenant_id,
+            tenant_slug=principal.tenant_slug,
+            user_id=principal.user_id,
+            purpose="search",
+            request_id=request.headers.get("x-request-id"),
+        ),
+        usage_from_text(
+            prompt=body.query,
+            completion="",
+            provider=settings.embeddings_provider,
+            model=settings.embeddings_model,
+            latency_ms=outcome.latency_ms,
+        ),
     )
 
     await record_action(

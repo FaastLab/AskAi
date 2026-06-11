@@ -9,7 +9,6 @@ SDK.
 from __future__ import annotations
 
 from functools import lru_cache
-
 from typing import Any, Protocol
 
 from faastlab_askai_core.adapters import (
@@ -36,6 +35,33 @@ def get_llm() -> LLMAdapter:
         from faastlab_askai_askai.adapters import OpenAIChatLLM
 
         return OpenAIChatLLM(settings)
+
+    if provider == "ollama":
+        from faastlab_askai_askai.adapters import OllamaLLM
+
+        return OllamaLLM(settings)
+
+    raise AdapterNotFoundError(
+        f"LLM provider {provider!r} not yet wired up "
+        "(supported: openai, azure, ollama)"
+    )
+
+
+@lru_cache(maxsize=8)
+def get_llm_for(provider: str) -> LLMAdapter:
+    """Return an LLM adapter bound to a SPECIFIC provider (memoised per
+    provider). Used by the AI gateway to honour per-tenant model routing that
+    may target a different provider than the global default.
+
+    A settings copy with `llm_provider` overridden is handed to the OpenAI
+    adapter so its azure-vs-openai branch resolves correctly.
+    """
+    settings = get_settings()
+
+    if provider in {"openai", "azure"}:
+        from faastlab_askai_askai.adapters import OpenAIChatLLM
+
+        return OpenAIChatLLM(settings.model_copy(update={"llm_provider": provider}))
 
     if provider == "ollama":
         from faastlab_askai_askai.adapters import OllamaLLM
@@ -132,6 +158,7 @@ def get_reranker() -> _RerankerLike:
 def reset_factory_cache() -> None:
     """Clear all cached adapters. Tests use this between cases."""
     get_llm.cache_clear()
+    get_llm_for.cache_clear()
     get_embeddings.cache_clear()
     get_vector_store.cache_clear()
     get_storage.cache_clear()

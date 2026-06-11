@@ -1,0 +1,29 @@
+Option A — manual: ingest on main VM, then sync to pod once. ~5 min:
+
+1. Upload your demo PDF via https://askai.faastlab.ai → wait ~30s for chunks/embeddings (you'll see it in the Documents tab).
+2. Re-snapshot from main VM → pod:
+
+# On main VM:
+docker exec askai-postgres pg_dump -U askai -d askai --no-owner --no-acl > /tmp/askai.sql
+gzip -f /tmp/askai.sql
+scp -P 40700 /tmp/askai.sql.gz 09b6331d-682f-4cef-8d91-7fee937d974b@96.28.88.208:/workspace/
+3. On the pod:
+
+cd /workspace && gunzip -f askai.sql.gz
+sudo -u postgres psql -c "DROP DATABASE askai;"
+sudo -u postgres createdb -O askai askai
+sudo -u postgres psql -d askai -c "CREATE EXTENSION vector;"
+sudo -u postgres psql -d askai -f /workspace/askai.sql 2>&1 | tail -5
+4. Now ask the question on https://askai.faastlab.ai → answer comes back in 3s with citations from your fresh PDF.
+
+
+
+Ran
+Check for document delete endpoint and UI
+No — there's no delete endpoint in the API and no delete button in the UI. Documents persist once ingested.
+
+Quick workarounds for demo prep:
+
+By UUID in DB: docker exec askai-postgres psql -U askai -d askai -c "DELETE FROM chunks WHERE document_id='<uuid>'; DELETE FROM documents WHERE id='<uuid>';"
+Bulk wipe demo uploads (keep regulator corpus): ... WHERE doc_type='upload' AND tenant_id='<your-private-tenant-uuid>';
+(Adding a delete button is ~30 min — endpoint + UI button + confirm dialog — but not for tonight if the demo is soon.)
