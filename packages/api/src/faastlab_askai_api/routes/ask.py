@@ -11,16 +11,21 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
+from faastlab_askai_api.audit_helper import record_action
+from faastlab_askai_api.middleware.quota import enforce_quota
+from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_askai.service import AskAiService
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.byok import get_request_secrets
 from faastlab_askai_core.config import get_settings
+from faastlab_askai_core.gateway import (
+    GatewayContext,
+    ModelRouter,
+    record_usage,
+    usage_from_text,
+)
 from faastlab_askai_core.schemas.search import AskRequest, AskResponse
 from faastlab_askai_search.filters import SearchFilters
-
-from faastlab_askai_api.audit_helper import record_action
-from faastlab_askai_api.middleware.principal import get_principal
-from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 
 
 def _require_byok_if_configured() -> None:
@@ -40,6 +45,17 @@ def _require_byok_if_configured() -> None:
 
 router = APIRouter(tags=["ask"])
 _service = AskAiService()
+_router = ModelRouter()
+
+
+def _gateway_ctx(request: Request, principal: Principal) -> GatewayContext:
+    return GatewayContext(
+        tenant_id=principal.tenant_id,
+        tenant_slug=principal.tenant_slug,
+        user_id=principal.user_id,
+        purpose="chat",
+        request_id=request.headers.get("x-request-id"),
+    )
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -47,6 +63,7 @@ async def ask(
     body: AskRequest,
     request: Request,
     principal: Principal = Depends(require_active_trial_or_subscription),
+    _quota: Principal = Depends(enforce_quota("chat")),
 ):
     _require_byok_if_configured()
     filters = SearchFilters(
@@ -55,6 +72,7 @@ async def ask(
     if body.stream:
         return EventSourceResponse(
             _sse_iter(
+                request=request,
                 principal=principal,
                 question=body.query,
                 session_id=body.session_id,
@@ -97,6 +115,21 @@ async def ask(
         },
     )
 
+    # Gateway usage ledger: per-tenant tokens/cost/latency for quotas + #5.
+    # Provider/model come from the router so per-tenant routing is recorded.
+    ctx = _gateway_ctx(request, principal)
+    route = await _router.route(ctx)
+    await record_usage(
+        ctx,
+        usage_from_text(
+            prompt=body.query,
+            completion=outcome.answer,
+            provider=route.provider,
+            model=route.model,
+            latency_ms=outcome.total_latency_ms,
+        ),
+    )
+
     return AskResponse(
         answer=outcome.answer,
         citations=outcome.citations,
@@ -109,6 +142,7 @@ async def ask(
 
 async def _sse_iter(
     *,
+    request: Request,
     principal: Principal,
     question: str,
     session_id,
@@ -117,6 +151,7 @@ async def _sse_iter(
 ) -> AsyncIterator[dict[str, str]]:
     import json
 
+    answer_parts: list[str] = []
     async for event in _service.stream_ask(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
@@ -125,4 +160,20 @@ async def _sse_iter(
         filters=filters,
         rerank=rerank,
     ):
+        if event.get("event") == "token" and event.get("text"):
+            answer_parts.append(str(event["text"]))
         yield {"event": str(event.get("event")), "data": json.dumps(event)}
+
+    # Record gateway usage once the stream completes (best-effort, never
+    # interrupts the response).
+    ctx = _gateway_ctx(request, principal)
+    route = await _router.route(ctx)
+    await record_usage(
+        ctx,
+        usage_from_text(
+            prompt=question,
+            completion="".join(answer_parts),
+            provider=route.provider,
+            model=route.model,
+        ),
+    )

@@ -84,3 +84,39 @@ class LLMTimeoutError(LLMError):
 
 class LLMRateLimitError(LLMError):
     """LLM provider returned a rate-limit error."""
+
+
+# ---- AI Gateway -------------------------------------------------------------
+
+
+class GatewayError(AskAiError):
+    """Base class for AI-gateway failures."""
+
+
+class PromptNotFoundError(GatewayError):
+    """No prompt matches the requested name (and version)."""
+
+
+class PromptRenderError(GatewayError):
+    """A prompt template could not be rendered (missing variable)."""
+
+
+class QuotaExceeded(GatewayError):
+    """A tenant has exhausted its per-tenant request or token quota.
+
+    Carries the limit/usage that tripped so callers (the API layer) can
+    surface a precise 429 with remaining-quota headers.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        limit_kind: str,
+        limit: int,
+        used: int,
+    ) -> None:
+        super().__init__(message)
+        self.limit_kind = limit_kind  # "requests" | "tokens"
+        self.limit = limit
+        self.used = used

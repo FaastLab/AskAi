@@ -302,6 +302,82 @@ class AuditLog(Base):
     )
 
 
+# ---- AI Gateway: LLM usage ledger -------------------------------------------
+
+
+class LLMUsage(Base):
+    """One row per LLM call routed through the AI gateway.
+
+    This is the cost/quota ledger and the foundation for #5 observability:
+    per-request, per-tenant token counts, latency, and cost. Quota checks
+    aggregate this table over a rolling window; the observability layer
+    queries the same rows for cost-per-tenant and failure replay.
+
+    `status` distinguishes ok / error / quota_denied so denied attempts are
+    auditable too. Tokens are best-effort estimates when the provider does
+    not return a usage object (e.g. streamed sovereign completions).
+    """
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (
+        Index("ix_llm_usage_tenant_created", "tenant_id", "created_at"),
+        Index("ix_llm_usage_request_id", "request_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # What the call was for: chat | summarise | validate | embed | ...
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ok | error | quota_denied
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ok")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# ---- AI Gateway: versioned prompts ------------------------------------------
+
+
+class Prompt(Base):
+    """A named, versioned prompt template under gateway governance.
+
+    Many versions may exist per `name`; exactly one should be `is_active`
+    (the registry returns the active one when no version is requested). Old
+    versions are never edited in place — a new version is inserted and
+    activation flipped — so the prompt history is auditable and a bad prompt
+    can be rolled back by re-activating a prior version.
+    """
+
+    __tablename__ = "prompts"
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_prompts_name_version"),
+        Index("ix_prompts_name_active", "name", "is_active"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    template: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 # ---- Watcher events ---------------------------------------------------------
 
 

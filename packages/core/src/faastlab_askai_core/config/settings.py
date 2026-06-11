@@ -147,6 +147,21 @@ class Settings(BaseSettings):
     api_cors_origins: str = "http://localhost:3000"
     api_rate_limit_per_min: int = 60
 
+    # ---- AI Gateway (#4) ----
+    # Single chokepoint for LLM access: per-tenant quotas, model routing,
+    # versioned prompts, and a usage/cost ledger. All limits default to 0 =
+    # UNLIMITED so enabling the gateway never silently throttles an existing
+    # tenant — per-tenant caps are opt-in via `tenant.settings["gateway"]`.
+    gateway_enabled: bool = True
+    # Rolling 24h caps applied per tenant when > 0. A tenant's own
+    # settings["gateway"]["quota"] overrides these defaults.
+    gateway_default_requests_per_day: int = 0
+    gateway_default_tokens_per_day: int = 0
+    # Cost ledger: price per 1k total tokens. Default 0.0 — sovereign models
+    # (Qwen on our own GPU) have no per-token cost. Set per-deployment when
+    # routing to a metered provider (e.g. OpenAI) so cost-per-tenant is real.
+    gateway_price_per_1k_tokens: float = 0.0
+
     # ---- MCP (Streamable HTTP transport) ----
     # When set, mounts an HTTP MCP endpoint at /mcp gated by a shared
     # bearer token. Customers point Claude Desktop / VS Code Copilot /
