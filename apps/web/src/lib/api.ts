@@ -501,9 +501,27 @@ export async function listDocumentCounts(): Promise<Record<string, number>> {
   return (await r.json()) as Record<string, number>;
 }
 
-/** URL for downloading / previewing the original document file. */
-export function documentFileUrl(id: string): string {
-  return `/v1/documents/${id}/file`;
+/**
+ * Get a short-lived signed URL for downloading the original document file.
+ *
+ * The browser opens this URL as an anchor / new-tab navigation, so it
+ * cannot attach an Authorization header. We exchange our bearer token
+ * for a 5-minute single-doc-scoped token via the signed-url endpoint,
+ * then embed that token in the URL query string. Tokens are audience-
+ * pinned to "askai-file" so a leak can't be replayed against
+ * /v1/ask, /v1/search etc.
+ *
+ * Returns null if the token can't be minted (auth expired, doc gone) —
+ * callers should show an error and prompt re-login.
+ */
+export async function getDocumentFileUrl(id: string): Promise<string | null> {
+  const r = await fetch(`/v1/documents/${id}/file/signed-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+  });
+  if (!r.ok) return null;
+  const body = (await r.json()) as { url: string; expires_in: number };
+  return body.url;
 }
 
 export type SearchHit = {

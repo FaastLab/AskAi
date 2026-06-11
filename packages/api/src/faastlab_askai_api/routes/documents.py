@@ -8,17 +8,23 @@ import mimetypes
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.db import Document, get_sessionmaker
+from faastlab_askai_core.exceptions import AuthenticationError, TenantNotFoundError
 from faastlab_askai_core.factory import get_storage
 from faastlab_askai_core.schemas.document import DocumentRead, DocumentSummary
 from faastlab_askai_core.tenancy import visible_tenant_ids
 
-from faastlab_askai_api.middleware.principal import get_principal
+from faastlab_askai_api.middleware.principal import (
+    FILE_TOKEN_TTL_SECONDS,
+    get_principal,
+    mint_file_token,
+    verify_file_token,
+)
 
 log = logging.getLogger(__name__)
 
@@ -137,10 +143,63 @@ async def get_document(
     return DocumentRead.model_validate(doc)
 
 
+@router.post(
+    "/documents/{document_id}/file/signed-url",
+    response_model=dict,
+    summary="Issue a short-lived signed URL for downloading the document file",
+    description=(
+        "Returns `{ url, expires_in }`. The url embeds a JWT in the query "
+        "string scoped to THIS document and valid for "
+        f"{FILE_TOKEN_TTL_SECONDS} seconds. The SPA uses this to open the "
+        "internal-copy view in a new tab (browser anchor navigations can't "
+        "attach Authorization headers). The token has audience 'askai-file' "
+        "so a leak can't be replayed against /v1/ask, /v1/search, etc."
+    ),
+)
+async def create_document_file_signed_url(
+    document_id: UUID,
+    principal: Principal = Depends(get_principal),
+) -> dict:
+    # Verify the doc exists AND the caller can see it before issuing the
+    # token — without this, an attacker who guessed a doc UUID could mint
+    # tokens for any doc whose UUID they knew.
+    tenant_ids = await visible_tenant_ids(principal.tenant_id)
+    sm = get_sessionmaker()
+    async with sm() as session:
+        result = await session.execute(
+            select(Document.id).where(
+                (Document.id == document_id)
+                & (Document.tenant_id.in_(tenant_ids))
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="document not found")
+
+    token = mint_file_token(
+        user_id=principal.user_id,
+        tenant_slug=principal.tenant_slug,
+        document_id=document_id,
+    )
+    return {
+        "url": f"/v1/documents/{document_id}/file?token={token}",
+        "expires_in": FILE_TOKEN_TTL_SECONDS,
+    }
+
+
 @router.get("/documents/{document_id}/file")
 async def download_document_file(
     document_id: UUID,
-    principal: Principal = Depends(get_principal),
+    request: Request,
+    token: str | None = Query(
+        None,
+        description=(
+            "Short-lived signed-URL token issued by "
+            "`POST /v1/documents/{id}/file/signed-url`. Use this when the "
+            "client can't send `Authorization` headers (browser iframe / "
+            "anchor navigation). Programmatic clients should use the bearer "
+            "header instead."
+        ),
+    ),
 ) -> StreamingResponse:
     """Stream the original document file from object storage.
 
@@ -149,8 +208,40 @@ async def download_document_file(
     what the model cited. Tenant-scoped: returns 404 if the document is
     not owned by the caller's tenant. Returns 404 if the document was
     indexed without persisting the original (storage_key is null).
+
+    Auth (either is accepted):
+      * `Authorization: Bearer <full-jwt>` — for programmatic clients.
+      * `?token=<file-jwt>` — short-lived signed URL minted by the
+        signed-url endpoint. Browser navigations use this path because
+        anchor / iframe loads can't attach headers.
     """
-    tenant_ids = await visible_tenant_ids(principal.tenant_id)
+    # Resolve the caller's tenant from whichever auth method they used.
+    # We deliberately don't call Depends(get_principal) here because
+    # FastAPI would 401 the request before we get a chance to fall back
+    # to the query token — the bearer dependency raises on missing.
+    auth_header = request.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        from faastlab_askai_api.middleware.principal import _principal_from_jwt
+        from faastlab_askai_core.config import get_settings as _gs
+        try:
+            principal = await _principal_from_jwt(auth_header[7:], _gs())
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except TenantNotFoundError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        caller_tenant_id = principal.tenant_id
+    elif token:
+        _user_id, caller_tenant_id = await verify_file_token(token, document_id)
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Missing auth: send Authorization: Bearer <jwt> OR a "
+                "?token= query param from /v1/documents/{id}/file/signed-url"
+            ),
+        )
+
+    tenant_ids = await visible_tenant_ids(caller_tenant_id)
     sm = get_sessionmaker()
     async with sm() as session:
         result = await session.execute(
