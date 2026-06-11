@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Sidebar } from "../components/Sidebar";
 import {
-  documentFileUrl,
   getConfig,
+  getDocumentFileUrl,
   listDocumentCounts,
   listDocuments,
   searchChunks,
@@ -513,9 +513,35 @@ function DocumentDetail({
   doc: DocumentRecord;
   searchHits: SearchHit[];
 }) {
-  const internalUrl = documentFileUrl(doc.id);
   const sourceIsHttp =
     doc.source_uri.startsWith("http://") || doc.source_uri.startsWith("https://");
+
+  // "View internal copy" mints a fresh signed URL on click rather than
+  // pre-fetching on render. The signed token is short-lived (5 min) and
+  // single-doc-scoped, so it's safe to embed in the new-tab URL.
+  const [viewBusy, setViewBusy] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
+
+  async function openInternalCopy() {
+    if (viewBusy) return;
+    setViewBusy(true);
+    setViewError(null);
+    try {
+      const url = await getDocumentFileUrl(doc.id);
+      if (!url) {
+        setViewError(
+          "Could not generate a download link — your session may have expired. Try logging in again."
+        );
+        return;
+      }
+      // Open in a new tab so the user keeps the Documents page open.
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setViewError((err as Error).message || "Failed to open document.");
+    } finally {
+      setViewBusy(false);
+    }
+  }
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -541,18 +567,22 @@ function DocumentDetail({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <a
-          href={internalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-md bg-ink-900 px-3 py-2 text-sm text-white hover:bg-ink-700"
+        <button
+          type="button"
+          onClick={openInternalCopy}
+          disabled={viewBusy}
+          className={
+            "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm text-white " +
+            (viewBusy ? "bg-ink-700 opacity-70 cursor-wait" : "bg-ink-900 hover:bg-ink-700")
+          }
+          title="Open the original file the indexer parsed"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
-          View internal copy
-        </a>
+          {viewBusy ? "Opening…" : "View internal copy"}
+        </button>
         {sourceIsHttp && (
           <a
             href={doc.source_uri}
@@ -575,6 +605,9 @@ function DocumentDetail({
           source: {doc.source_uri.length > 60 ? doc.source_uri.slice(0, 57) + "…" : doc.source_uri}
         </span>
       </div>
+      {viewError && (
+        <p className="mt-2 text-xs text-red-700">{viewError}</p>
+      )}
 
       {searchHits.length > 0 && (
         <section className="mt-6">

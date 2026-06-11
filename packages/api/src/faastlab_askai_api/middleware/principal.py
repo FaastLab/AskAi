@@ -126,6 +126,98 @@ def require_scope(scope: str):
     return _check
 
 
+# ---- Short-lived signed URLs for document-file downloads -----------------
+#
+# `/v1/documents/{id}/file` is loaded by the browser as a top-level navigation
+# (anchor href / iframe src), which cannot carry an Authorization header. To
+# keep that endpoint authenticated without leaking the long-lived bearer JWT
+# in a query string, the SPA first calls `POST /v1/documents/{id}/file/
+# signed-url` with its bearer, gets back a short-lived (5 min) JWT scoped to
+# that one document, and embeds it as `?token=`. The file route accepts
+# either Authorization: Bearer (programmatic clients) OR the query token.
+#
+# The signed token uses a DIFFERENT audience ("askai-file") than the main
+# bearer ("askai"), so a leaked file token can't be replayed against
+# /v1/ask, /v1/search, etc — those reject any token whose `aud` claim
+# isn't `settings.jwt_audience`.
+
+FILE_TOKEN_AUDIENCE = "askai-file"
+FILE_TOKEN_TTL_SECONDS = 300
+
+
+def mint_file_token(
+    *,
+    user_id: str,
+    tenant_slug: str,
+    document_id: UUID,
+    settings: Settings | None = None,
+    ttl_seconds: int = FILE_TOKEN_TTL_SECONDS,
+) -> str:
+    """Mint a 5-minute JWT scoped to a single document download."""
+    s = settings or get_settings()
+    now = int(time.time())
+    payload = {
+        "sub": user_id,
+        "tenant": tenant_slug,
+        "doc": str(document_id),
+        "iat": now,
+        "exp": now + ttl_seconds,
+        "aud": FILE_TOKEN_AUDIENCE,
+        "iss": s.jwt_issuer,
+    }
+    return jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
+
+
+async def verify_file_token(
+    token: str,
+    document_id: UUID,
+    settings: Settings | None = None,
+) -> tuple[str, UUID]:
+    """Decode a file-scoped JWT and assert it's for THIS document.
+
+    Returns (user_id, tenant_id). Raises HTTPException on any mismatch.
+    """
+    s = settings or get_settings()
+    try:
+        claims = jwt.decode(
+            token,
+            s.jwt_secret,
+            algorithms=[s.jwt_algorithm],
+            audience=FILE_TOKEN_AUDIENCE,
+            issuer=s.jwt_issuer,
+        )
+    except jwt.PyJWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"invalid file token: {exc}",
+        ) from exc
+
+    if claims.get("doc") != str(document_id):
+        # Critical — without this check, a token minted for doc A could
+        # be replayed against doc B in the same tenant.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="file token does not match this document",
+        )
+
+    tenant_slug = claims.get("tenant")
+    user_id = claims.get("sub")
+    if not tenant_slug or not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="file token missing 'tenant' or 'sub'",
+        )
+
+    try:
+        tenant_id = await _resolve_tenant_id(str(tenant_slug))
+    except TenantNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
+
+    return str(user_id), tenant_id
+
+
 def mint_jwt(
     *,
     user_id: str,
