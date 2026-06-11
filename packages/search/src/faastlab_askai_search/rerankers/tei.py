@@ -40,6 +40,11 @@ class TeiReranker:
             )
         self._url = f"{base}/rerank"
         self._timeout = timeout_seconds
+        # TEI rejects requests with more inputs than its --max-client-batch-size
+        # (default 32) with HTTP 413. Split into batches of this size and merge —
+        # bge-reranker scores are absolute per (query, doc), so they're
+        # comparable across batches. Keep <= the server's configured cap.
+        self._max_batch = max(1, self._settings.reranker_max_batch_size)
 
     async def rerank(
         self,
@@ -51,25 +56,29 @@ class TeiReranker:
         if not hits:
             return []
 
-        payload = {"query": query, "texts": [h.content for h in hits]}
+        # Collect (chunk, score) across all batches, then globally sort + cap.
+        scored: list[tuple[RetrievedChunk, float]] = []
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(self._url, json=payload)
-                response.raise_for_status()
-                results = response.json()
+                for start in range(0, len(hits), self._max_batch):
+                    batch = hits[start : start + self._max_batch]
+                    response = await client.post(
+                        self._url,
+                        json={"query": query, "texts": [h.content for h in batch]},
+                    )
+                    response.raise_for_status()
+                    for item in response.json():
+                        scored.append((batch[int(item["index"])], float(item["score"])))
         except Exception as exc:
             raise RerankerError(f"TEI rerank failed: {exc}") from exc
 
-        # TEI returns results sorted best-first; defensively re-sort anyway so
-        # we don't depend on server behaviour.
-        results = sorted(results, key=lambda r: float(r["score"]), reverse=True)
+        scored.sort(key=lambda pair: pair[1], reverse=True)
         if top_n:
-            results = results[:top_n]
+            scored = scored[:top_n]
 
         reranked: list[RetrievedChunk] = []
-        for new_rank, item in enumerate(results, start=1):
-            chunk = hits[int(item["index"])]
-            chunk.score = float(item["score"])
+        for new_rank, (chunk, score) in enumerate(scored, start=1):
+            chunk.score = score
             chunk.rank = new_rank
             reranked.append(chunk)
         return reranked

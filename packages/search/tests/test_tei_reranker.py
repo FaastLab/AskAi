@@ -29,8 +29,12 @@ def _chunk(content: str, rank: int) -> RetrievedChunk:
     )
 
 
-def _settings(url: str | None = "http://gpu:8081") -> Settings:
-    return Settings(reranker_base_url=url, reranker_provider="tei")
+def _settings(url: str | None = "http://gpu:8081", *, max_batch: int = 32) -> Settings:
+    return Settings(
+        reranker_base_url=url,
+        reranker_provider="tei",
+        reranker_max_batch_size=max_batch,
+    )
 
 
 class _FakeResponse:
@@ -132,3 +136,54 @@ async def test_http_failure_raises_reranker_error(monkeypatch) -> None:
     monkeypatch.setattr(tei_mod.httpx, "AsyncClient", _boom)
     with pytest.raises(RerankerError):
         await TeiReranker(_settings()).rerank("q", [_chunk("a", 1)])
+
+
+class _ScoringClient:
+    """Fake client that scores each batch by a content->score map, so we can
+    assert batches are merged + globally re-sorted (not just per-batch)."""
+
+    def __init__(self, scores: dict[str, float], calls: list[int]):
+        self._scores = scores
+        self._calls = calls
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json):
+        texts = json["texts"]
+        self._calls.append(len(texts))
+        # TEI would never return >32; assert the adapter respects the cap.
+        assert len(texts) <= 32
+        payload = [
+            {"index": i, "score": self._scores[t]} for i, t in enumerate(texts)
+        ]
+        return _FakeResponse(payload)
+
+
+async def test_batches_large_pool_and_merges(monkeypatch) -> None:
+    scores = {"a": 0.5, "b": 0.9, "c": 0.1, "d": 0.95, "e": 0.3}
+    calls: list[int] = []
+    monkeypatch.setattr(
+        tei_mod.httpx, "AsyncClient", lambda *a, **k: _ScoringClient(scores, calls)
+    )
+    hits = [_chunk(c, i + 1) for i, c in enumerate(scores)]
+    # max_batch=2 over 5 hits -> 3 requests (2, 2, 1)
+    out = await TeiReranker(_settings(max_batch=2)).rerank("q", hits)
+
+    assert calls == [2, 2, 1]                       # split into batches
+    assert [c.content for c in out] == ["d", "b", "a", "e", "c"]   # global sort
+    assert [c.rank for c in out] == [1, 2, 3, 4, 5]
+
+
+async def test_top_n_applies_after_merge(monkeypatch) -> None:
+    scores = {"a": 0.5, "b": 0.9, "c": 0.1, "d": 0.95}
+    calls: list[int] = []
+    monkeypatch.setattr(
+        tei_mod.httpx, "AsyncClient", lambda *a, **k: _ScoringClient(scores, calls)
+    )
+    hits = [_chunk(c, i + 1) for i, c in enumerate(scores)]
+    out = await TeiReranker(_settings(max_batch=2)).rerank("q", hits, top_n=2)
+    assert [c.content for c in out] == ["d", "b"]    # best 2 across all batches
