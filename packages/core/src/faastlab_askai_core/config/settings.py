@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o"
     summarisation_model: str = "gpt-4o-mini"
     openai_api_key: str | None = None
+    # Override the OpenAI-compatible base URL for the LLM. Point this at a
+    # sovereign vLLM endpoint (e.g. http://<gpu-ip>:8000/v1) to run fully
+    # off OpenAI. None = the SDK default (api.openai.com). Separate from
+    # embeddings_base_url so LLM and embeddings can target different servers.
+    llm_base_url: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str = "2024-08-01-preview"
@@ -96,6 +101,10 @@ class Settings(BaseSettings):
     embeddings_provider: EmbeddingsProvider = "openai"
     embeddings_model: str = "text-embedding-3-small"
     embeddings_dim: int = 1536
+    # Override the OpenAI-compatible base URL for embeddings. Point at a
+    # sovereign TEI endpoint (e.g. http://<gpu-ip>:8080/v1) for bge-m3.
+    # None = the SDK default (api.openai.com).
+    embeddings_base_url: str | None = None
 
     # ---- Reranker ----
     # 'bge'    — local cross-encoder via sentence-transformers + torch (CPU
