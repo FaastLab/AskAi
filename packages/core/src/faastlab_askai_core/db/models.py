@@ -478,3 +478,184 @@ class AnswerFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ---- Ingestion pipeline (Azure-shaped: Source/Skillset/Index/Indexer) --------
+#
+# The declarative backbone for ingestion. See docs/ingestion-pipeline-design.md.
+# Each entity is a thin typed row whose flexible definition lives in a JSONB
+# column (decision: "JSON config in a table, with an id" — not one big blob).
+#
+# `tenant_id` is NULLABLE on Source / Skillset / IndexProfile so a row can be a
+# **system preset** (tenant_id IS NULL) — a shared template (e.g. the FCA source
+# config) that many tenants' Indexers reference. An Indexer and its runs always
+# belong to a concrete tenant (tenant_id NOT NULL): the indexer is what writes
+# into a tenant's corpus.
+
+
+class Source(Base):
+    """Where + how to fetch raw documents (a connector definition).
+
+    `kind` selects the connector (web/sitemap/filesystem/s3/govuk_api/rss);
+    `config` carries its parameters (start_urls, url_prefix, include/exclude,
+    max_pages…). `category` tags the regulator (fca/pra/boe/hmrc/ico/fos) for
+    presets. `license` records the basis under which a preset source's data may
+    be centrally curated (see design §10)."""
+
+    __tablename__ = "ingestion_sources"
+    __table_args__ = (
+        Index("ix_ingestion_sources_tenant", "tenant_id"),
+        Index("ix_ingestion_sources_category", "category"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="web")
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    license: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_preset: Mapped[bool] = mapped_column(default=False, nullable=False)
+    enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Skillset(Base):
+    """An ordered, reusable list of enrichment skills.
+
+    `skills` is the ordered pipeline: [{type, config}] over
+    parse/clean/chunk/extract_metadata/summarise/keyphrases/embed. The default
+    skillset reproduces today's hardcoded `IngestionPipeline` behaviour."""
+
+    __tablename__ = "ingestion_skillsets"
+    __table_args__ = (Index("ix_ingestion_skillsets_tenant", "tenant_id"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    skills: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    is_default: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class IndexProfile(Base):
+    """A lightweight field/metadata profile (NOT a mutable DB schema).
+
+    `fields` declares which fields to populate and their flags
+    (searchable/filterable/facetable/retrievable). They map onto
+    `Document.metadata_` keys + the search/filter layer, so fields can be added
+    later without a migration (design §5)."""
+
+    __tablename__ = "ingestion_index_profiles"
+    __table_args__ = (Index("ix_ingestion_index_profiles_tenant", "tenant_id"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Indexer(Base):
+    """Binds a Source + Skillset + IndexProfile + Scheduler and runs them.
+
+    The orchestrator: it pulls from `source`, runs `skillset`, maps outputs to
+    `index_profile` fields via `field_mappings`, dedups on `content_hash`, and
+    writes into THIS tenant's corpus. `schedule` is {interval_minutes|cron|null}.
+    Always tenant-scoped — it's what writes data."""
+
+    __tablename__ = "ingestion_indexers"
+    __table_args__ = (Index("ix_ingestion_indexers_tenant", "tenant_id"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("ingestion_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    skillset_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("ingestion_skillsets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    index_profile_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("ingestion_index_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    field_mappings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    schedule: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    runs: Mapped[list["IndexerRun"]] = relationship(
+        back_populates="indexer", cascade="all, delete-orphan"
+    )
+
+
+class IndexerRun(Base):
+    """One execution of an Indexer — the queryable run history.
+
+    Replaces the JSONB run-history of the prototype connector work so runs can
+    grow and be queried (counts, status, errors, duration)."""
+
+    __tablename__ = "ingestion_indexer_runs"
+    __table_args__ = (
+        Index("ix_ingestion_indexer_runs_indexer", "indexer_id", "id"),
+        Index("ix_ingestion_indexer_runs_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    indexer_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("ingestion_indexers.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # running | ok | error
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ingested: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    indexer: Mapped[Indexer] = relationship(back_populates="runs")
