@@ -6,6 +6,7 @@ import { AdminPage } from "./pages/Admin";
 import { AuditPage } from "./pages/Audit";
 import { ChatPage } from "./pages/Chat";
 import { ConnectorsPage } from "./pages/Connectors";
+import { DataSourcesPage } from "./pages/DataSources";
 import { DocumentsPage } from "./pages/Documents";
 import { FilesPage } from "./pages/Files";
 import { LoginPage } from "./pages/Login";
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/prompts" element={<RequireAuth><PromptsPage /></RequireAuth>} />
         <Route path="/security" element={<RequireAuth><SecurityPage /></RequireAuth>} />
         <Route path="/connectors" element={<RequireAuth><ConnectorsPage /></RequireAuth>} />
+        <Route path="/data-sources" element={<RequireAuth><DataSourcesPage /></RequireAuth>} />
 
         {/* Catch-all — unknown paths bounce home (which RequireAuth then
             sends to /login if the visitor isn't authenticated). */}
