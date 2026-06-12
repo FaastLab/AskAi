@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from faastlab_askai_api.audit_helper import record_action
@@ -41,13 +42,22 @@ router = APIRouter(tags=["ask"])
 _service = AskAiService()
 
 
+def _request_id(request: Request) -> str:
+    """Correlation id for one /ask: reuse an upstream X-Request-Id if present
+    (e.g. set by NPM/nginx), else mint one. Stamped on the ledger + audit rows
+    so a request can be traced end-to-end."""
+    return request.headers.get("x-request-id") or uuid4().hex
+
+
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     body: AskRequest,
+    request: Request,
     principal: Principal = Depends(require_active_trial_or_subscription),
     _quota: Principal = Depends(enforce_quota("chat")),
 ):
     _require_byok_if_configured()
+    request_id = _request_id(request)
     filters = SearchFilters(
         only_active=not body.filters.get("include_superseded", False)
     )
@@ -59,6 +69,7 @@ async def ask(
                 session_id=body.session_id,
                 filters=filters,
                 rerank=body.rerank,
+                request_id=request_id,
             )
         )
 
@@ -69,6 +80,7 @@ async def ask(
         session_id=body.session_id,
         filters=filters,
         rerank=body.rerank,
+        request_id=request_id,
     )
 
     # Compliance audit: capture the question, a summary of the answer,
@@ -93,6 +105,7 @@ async def ask(
         extra={
             "confidence": outcome.confidence,
             "session_id": str(outcome.session_id),
+            "request_id": request_id,
         },
     )
 
@@ -116,10 +129,15 @@ async def _sse_iter(
     session_id,
     filters: SearchFilters,
     rerank: bool = True,
+    request_id: str | None = None,
 ) -> AsyncIterator[dict[str, str]]:
     import json
 
-    # Usage is recorded inside AIGateway.stream as the stream completes.
+    # Usage is recorded inside AIGateway.stream; here we accumulate the answer
+    # + citations so the streamed turn also gets a rich audit row (with the
+    # same request_id) — otherwise streamed asks wouldn't be traceable.
+    answer_parts: list[str] = []
+    sources: list[dict[str, object]] = []
     async for event in _service.stream_ask(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
@@ -127,5 +145,20 @@ async def _sse_iter(
         session_id=session_id,
         filters=filters,
         rerank=rerank,
+        request_id=request_id,
     ):
+        if event.get("event") == "token" and event.get("text"):
+            answer_parts.append(str(event["text"]))
+        elif event.get("event") == "done":
+            sources = list(event.get("citations") or [])
         yield {"event": str(event.get("event")), "data": json.dumps(event)}
+
+    await record_action(
+        principal=principal,
+        action="ask",
+        resource="/v1/ask",
+        query=question,
+        response_summary="".join(answer_parts)[:600],
+        sources=sources,
+        extra={"request_id": request_id, "stream": True},
+    )
