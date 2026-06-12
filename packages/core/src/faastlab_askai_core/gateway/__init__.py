@@ -16,6 +16,8 @@ from faastlab_askai_core.gateway.context import GatewayContext
 from faastlab_askai_core.gateway.prompts import (
     PromptRecord,
     PromptRegistry,
+    PromptSummary,
+    PromptVersion,
     register_default,
     render_template,
 )
@@ -51,6 +53,8 @@ __all__ = [
     "ModelRouter",
     "PromptRecord",
     "PromptRegistry",
+    "PromptSummary",
+    "PromptVersion",
     "QuotaLimits",
     "QuotaService",
     "QuotaStatus",

@@ -330,6 +330,62 @@ export async function getGatewayTrace(
   return (await r.json()) as GatewayTrace;
 }
 
+// ---- Prompt engineering (owner-only): live, versioned system prompts -------
+
+export type GatewayPromptVersion = {
+  version: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type GatewayPrompt = {
+  name: string;
+  active_template: string;
+  active_version: string;
+  source: string; // "db" | "default"
+  default_template: string | null;
+  versions: GatewayPromptVersion[];
+};
+
+export async function listPrompts(): Promise<GatewayPrompt[] | null> {
+  const r = await fetch("/v1/gateway/prompts", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayPrompt[];
+}
+
+export async function savePromptVersion(
+  name: string,
+  template: string,
+  description?: string,
+): Promise<{ name: string; version: string }> {
+  const r = await fetch(
+    `/v1/gateway/prompts/${encodeURIComponent(name)}/versions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+      body: JSON.stringify({ template, description, activate: true }),
+    },
+  );
+  if (!r.ok) throw new Error(`Save failed (HTTP ${r.status})`);
+  return (await r.json()) as { name: string; version: string };
+}
+
+export async function activatePromptVersion(
+  name: string,
+  version: string,
+): Promise<void> {
+  const r = await fetch(
+    `/v1/gateway/prompts/${encodeURIComponent(name)}/activate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+      body: JSON.stringify({ version }),
+    },
+  );
+  if (!r.ok) throw new Error(`Activate failed (HTTP ${r.status})`);
+}
+
 // ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------

@@ -16,7 +16,7 @@ from uuid import UUID
 from faastlab_askai_askai.citations import extract_citations
 from faastlab_askai_askai.memory import SessionMemory
 from faastlab_askai_askai.prompts import REFUSAL_NO_CONTEXT, build_rag_messages
-from faastlab_askai_core.gateway import AIGateway, GatewayContext
+from faastlab_askai_core.gateway import AIGateway, GatewayContext, PromptRegistry
 from faastlab_askai_core.schemas.search import Citation
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.service import SearchOutcome, SearchService
@@ -53,9 +53,19 @@ class AskAiService:
         # + exact usage ledger, all at one chokepoint.
         self._gateway = gateway or AIGateway()
         self._memory = memory or SessionMemory()
+        self._prompts = PromptRegistry()
         self._retrieve_k = retrieve_k
         self._temperature = temperature
         self._max_tokens = max_tokens
+
+    async def _system_prompt(self) -> str | None:
+        """Resolve the active RAG system prompt from the registry (curated via
+        the Prompts UI). Defensive: any failure falls back to the built-in
+        default so prompt resolution never breaks a request."""
+        try:
+            return (await self._prompts.get("rag.system")).template
+        except Exception:
+            return None
 
     async def ask(
         self,
@@ -80,7 +90,12 @@ class AskAiService:
             tenant_id=tenant_id, user_id=user_id, purpose="chat", request_id=request_id
         )
         if retrieval.hits:
-            messages = build_rag_messages(question, retrieval.hits, history=history)
+            messages = build_rag_messages(
+                question,
+                retrieval.hits,
+                history=history,
+                system_prompt=await self._system_prompt(),
+            )
             generated = await self._gateway.complete(
                 ctx,
                 messages,
@@ -161,7 +176,12 @@ class AskAiService:
             collected.append(REFUSAL_NO_CONTEXT)
             yield {"event": "token", "text": REFUSAL_NO_CONTEXT}
         else:
-            messages = build_rag_messages(question, retrieval.hits, history=history)
+            messages = build_rag_messages(
+                question,
+                retrieval.hits,
+                history=history,
+                system_prompt=await self._system_prompt(),
+            )
             first_token_at: float | None = None
             async for token in self._gateway.stream(
                 ctx,
