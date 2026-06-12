@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import desc, select
 
 from faastlab_askai_api.middleware.principal import require_scope
 from faastlab_askai_core.adapters import Principal
@@ -111,3 +111,109 @@ async def gateway_usage(
         )
     )
     return summarize_usage(window_hours, rows, quota)
+
+
+# ---- #5 Observability: per-request feed + latency stats ---------------------
+
+
+class LatencyStats(BaseModel):
+    count: int  # attempts that reached the model (excludes quota_denied)
+    p50_ms: float | None
+    p95_ms: float | None
+    error_rate: float  # 0..1 over the counted attempts
+
+
+class RequestRow(BaseModel):
+    created_at: datetime
+    purpose: str
+    model: str | None
+    total_tokens: int
+    cost_usd: float
+    latency_ms: float | None
+    status: str
+    error: str | None
+
+
+class RequestsResponse(BaseModel):
+    window_hours: int
+    stats: LatencyStats
+    requests: list[RequestRow]
+
+
+def _percentile(values: list[float], p: float) -> float | None:
+    """Linear-interpolated percentile (p in [0,1]); None for empty input."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return round(ordered[0], 2)
+    k = (len(ordered) - 1) * p
+    lo = int(k)
+    hi = min(lo + 1, len(ordered) - 1)
+    return round(ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo), 2)
+
+
+def compute_request_stats(rows: list[tuple[str, float | None]]) -> LatencyStats:
+    """Latency p50/p95 + error rate over (status, latency_ms) rows.
+
+    Quota-denied rows are excluded — they never reached the model, so they'd
+    skew both latency and error rate.
+    """
+    attempts = [(status, lat) for status, lat in rows if status != "quota_denied"]
+    latencies = [float(lat) for _, lat in attempts if lat is not None]
+    errors = sum(1 for status, _ in attempts if status == "error")
+    count = len(attempts)
+    return LatencyStats(
+        count=count,
+        p50_ms=_percentile(latencies, 0.50),
+        p95_ms=_percentile(latencies, 0.95),
+        error_rate=round(errors / count, 4) if count else 0.0,
+    )
+
+
+@router.get("/requests", response_model=RequestsResponse)
+async def gateway_requests(
+    window_hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=100, ge=1, le=1000),
+    principal: Principal = Depends(require_scope("owner")),
+) -> RequestsResponse:
+    """Recent per-request observability feed for the caller's tenant: latency,
+    status, tokens, cost, and error text — plus p50/p95 + error rate."""
+    since = datetime.now(UTC) - timedelta(hours=window_hours)
+    sm = get_sessionmaker()
+    async with sm() as session:
+        result = await session.execute(
+            select(
+                LLMUsage.created_at,
+                LLMUsage.purpose,
+                LLMUsage.model,
+                LLMUsage.total_tokens,
+                LLMUsage.cost_usd,
+                LLMUsage.latency_ms,
+                LLMUsage.status,
+                LLMUsage.error,
+            )
+            .where(
+                LLMUsage.tenant_id == principal.tenant_id,
+                LLMUsage.created_at >= since,
+            )
+            .order_by(desc(LLMUsage.id))
+            .limit(limit)
+        )
+        rows = result.all()
+
+    requests = [
+        RequestRow(
+            created_at=r.created_at,
+            purpose=r.purpose,
+            model=r.model,
+            total_tokens=int(r.total_tokens or 0),
+            cost_usd=float(r.cost_usd or 0.0),
+            latency_ms=r.latency_ms,
+            status=r.status,
+            error=r.error,
+        )
+        for r in rows
+    ]
+    stats = compute_request_stats([(r.status, r.latency_ms) for r in rows])
+    return RequestsResponse(window_hours=window_hours, stats=stats, requests=requests)

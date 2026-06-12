@@ -233,6 +233,71 @@ export function auditCsvUrl(days = 30): string {
 }
 
 // ----------------------------------------------------------------------------
+// AI Gateway observability (owner-only): usage + per-request feed
+// ----------------------------------------------------------------------------
+
+export type GatewayQuota = {
+  requests_per_day: number; // 0 = unlimited
+  tokens_per_day: number;
+  requests_remaining: number | null; // null = unlimited
+  tokens_remaining: number | null;
+};
+
+export type GatewayUsage = {
+  window_hours: number;
+  requests: number;
+  ok: number;
+  errors: number;
+  denied: number;
+  tokens: number;
+  cost_usd: number;
+  by_purpose: Record<string, number>;
+  quota: GatewayQuota;
+};
+
+export type GatewayRequestRow = {
+  created_at: string;
+  purpose: string;
+  model: string | null;
+  total_tokens: number;
+  cost_usd: number;
+  latency_ms: number | null;
+  status: string;
+  error: string | null;
+};
+
+export type GatewayRequests = {
+  window_hours: number;
+  stats: {
+    count: number;
+    p50_ms: number | null;
+    p95_ms: number | null;
+    error_rate: number;
+  };
+  requests: GatewayRequestRow[];
+};
+
+export async function getGatewayUsage(windowHours = 24): Promise<GatewayUsage | null> {
+  const r = await fetch(`/v1/gateway/usage?window_hours=${windowHours}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayUsage;
+}
+
+export async function getGatewayRequests(
+  windowHours = 24,
+  limit = 100,
+): Promise<GatewayRequests | null> {
+  const r = await fetch(
+    `/v1/gateway/requests?window_hours=${windowHours}&limit=${limit}`,
+    { headers: allAuthHeaders() },
+  );
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayRequests;
+}
+
+// ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------
 

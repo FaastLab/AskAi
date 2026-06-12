@@ -8,6 +8,7 @@ import { ChatPage } from "./pages/Chat";
 import { DocumentsPage } from "./pages/Documents";
 import { LoginPage } from "./pages/Login";
 import { SignupPage } from "./pages/Signup";
+import { UsagePage } from "./pages/Usage";
 import { ValidatorPage } from "./pages/Validator";
 
 /**
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/validator" element={<RequireAuth><ValidatorPage /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/audit" element={<RequireAuth><AuditPage /></RequireAuth>} />
+        <Route path="/usage" element={<RequireAuth><UsagePage /></RequireAuth>} />
 
         {/* Catch-all — unknown paths bounce home (which RequireAuth then
             sends to /login if the visitor isn't authenticated). */}
