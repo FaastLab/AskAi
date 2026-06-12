@@ -11,17 +11,15 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import perf_counter
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from faastlab_askai_core.adapters import LLMAdapter
-from faastlab_askai_core.factory import get_llm
+from faastlab_askai_askai.citations import extract_citations
+from faastlab_askai_askai.memory import SessionMemory
+from faastlab_askai_askai.prompts import REFUSAL_NO_CONTEXT, build_rag_messages
+from faastlab_askai_core.gateway import AIGateway, GatewayContext
 from faastlab_askai_core.schemas.search import Citation
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.service import SearchOutcome, SearchService
-
-from faastlab_askai_askai.chains import RagChain
-from faastlab_askai_askai.citations import extract_citations
-from faastlab_askai_askai.memory import SessionMemory
 
 log = logging.getLogger(__name__)
 
@@ -44,16 +42,20 @@ class AskAiService:
         self,
         *,
         search: SearchService | None = None,
-        chain: RagChain | None = None,
-        llm: LLMAdapter | None = None,
+        gateway: AIGateway | None = None,
         memory: SessionMemory | None = None,
         retrieve_k: int = 16,
+        temperature: float = 0.0,
+        max_tokens: int | None = 1400,
     ) -> None:
         self._search = search or SearchService()
-        self._llm = llm or get_llm()
-        self._chain = chain or RagChain(self._llm)
+        # Generation flows through the AI gateway: per-tenant quota + routing
+        # + exact usage ledger, all at one chokepoint.
+        self._gateway = gateway or AIGateway()
         self._memory = memory or SessionMemory()
         self._retrieve_k = retrieve_k
+        self._temperature = temperature
+        self._max_tokens = max_tokens
 
     async def ask(
         self,
@@ -73,10 +75,19 @@ class AskAiService:
         retrieval = await self._do_retrieval(tenant_id, question, filters, rerank)
         retrieval_ms = retrieval.latency_ms
 
-        result = await self._chain.answer(
-            question, retrieval.hits, history=history
-        )
-        citations = extract_citations(result.text, result.chunks)
+        ctx = GatewayContext(tenant_id=tenant_id, user_id=user_id, purpose="chat")
+        if retrieval.hits:
+            messages = build_rag_messages(question, retrieval.hits, history=history)
+            generated = await self._gateway.complete(
+                ctx,
+                messages,
+                temperature=self._temperature,
+                max_tokens=self._max_tokens,
+            )
+            answer_text = generated.text
+        else:
+            answer_text = REFUSAL_NO_CONTEXT
+        citations = extract_citations(answer_text, retrieval.hits)
 
         total_ms = (perf_counter() - started) * 1000.0
 
@@ -86,19 +97,19 @@ class AskAiService:
             session_id=session_uuid,
             user_id=user_id,
             question=question,
-            answer=result.text,
+            answer=answer_text,
             citations=[c.model_dump(mode="json") for c in citations],
         )
 
         return AskOutcome(
-            answer=result.text,
+            answer=answer_text,
             citations=citations,
             session_id=session_uuid,
             confidence=retrieval.confidence,
             retrieval_latency_ms=retrieval_ms,
             total_latency_ms=round(total_ms, 2),
             generated_at=datetime.now(UTC),
-            chunks_used=len(result.chunks),
+            chunks_used=len(retrieval.hits),
         )
 
     async def stream_ask(
@@ -139,18 +150,27 @@ class AskAiService:
         }
 
         collected: list[str] = []
-        first_token_at: float | None = None
-        async for token in self._chain.stream_answer(
-            question, retrieval.hits, history=history
-        ):
-            if first_token_at is None:
-                first_token_at = perf_counter()
-                log.info(
-                    "stream_ask: first_token_at=%.0fms (after retrieve)",
-                    (first_token_at - t_retr) * 1000,
-                )
-            collected.append(token)
-            yield {"event": "token", "text": token}
+        ctx = GatewayContext(tenant_id=tenant_id, user_id=user_id, purpose="chat")
+        if not retrieval.hits:
+            collected.append(REFUSAL_NO_CONTEXT)
+            yield {"event": "token", "text": REFUSAL_NO_CONTEXT}
+        else:
+            messages = build_rag_messages(question, retrieval.hits, history=history)
+            first_token_at: float | None = None
+            async for token in self._gateway.stream(
+                ctx,
+                messages,
+                temperature=self._temperature,
+                max_tokens=self._max_tokens,
+            ):
+                if first_token_at is None:
+                    first_token_at = perf_counter()
+                    log.info(
+                        "stream_ask: first_token_at=%.0fms (after retrieve)",
+                        (first_token_at - t_retr) * 1000,
+                    )
+                collected.append(token)
+                yield {"event": "token", "text": token}
 
         t_done = perf_counter()
         full_answer = "".join(collected)

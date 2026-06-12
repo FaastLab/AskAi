@@ -17,7 +17,9 @@ Purpose = str  # "chat" | "summarise" | "validate" | "embed" | ...
 @dataclass(frozen=True, slots=True)
 class GatewayContext:
     tenant_id: UUID
-    tenant_slug: str
+    # Slug is for log lines only (quota/routing key on tenant_id), so it's
+    # optional — service-layer callers that only have the id can omit it.
+    tenant_slug: str = ""
     user_id: str | None = None
     plan: str | None = None
     purpose: Purpose = "chat"
