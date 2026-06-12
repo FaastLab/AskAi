@@ -432,6 +432,96 @@ export async function getGovernanceEvents(): Promise<GovernanceEvent[] | null> {
 }
 
 // ----------------------------------------------------------------------------
+// #8 Web connectors — config-driven crawling + indexer dashboard (owner-only)
+// ----------------------------------------------------------------------------
+
+export type ConnectorRun = {
+  run_id: string;
+  started_at: string;
+  finished_at: string;
+  status: "ok" | "error" | "running";
+  pages: number;
+  ingested: number;
+  skipped: number;
+  failed: number;
+  error: string | null;
+  duration_ms: number;
+};
+
+export type WebConnector = {
+  id: string;
+  name: string;
+  mode: "page" | "sitemap" | "crawl";
+  start_urls: string[];
+  url_prefix: string | null;
+  include: string[];
+  exclude: string[];
+  max_pages: number;
+  max_depth: number;
+  doc_type: string | null;
+  enabled: boolean;
+  schedule_interval_minutes: number | null;
+  created_at?: string;
+  last_run_at?: string | null;
+  runs?: ConnectorRun[];
+};
+
+export type ConnectorInput = Omit<WebConnector, "id" | "created_at" | "last_run_at" | "runs">;
+
+export async function listConnectors(): Promise<WebConnector[]> {
+  const r = await fetch("/v1/connectors", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as WebConnector[];
+}
+
+export async function createConnector(body: ConnectorInput): Promise<WebConnector | null> {
+  const r = await fetch("/v1/connectors", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as WebConnector;
+}
+
+export async function updateConnector(
+  id: string,
+  body: ConnectorInput,
+): Promise<WebConnector | null> {
+  const r = await fetch(`/v1/connectors/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as WebConnector;
+}
+
+export async function deleteConnector(id: string): Promise<boolean> {
+  const r = await fetch(`/v1/connectors/${id}`, {
+    method: "DELETE",
+    headers: allAuthHeaders(),
+  });
+  return r.ok;
+}
+
+/** Enqueue an immediate crawl. Returns the task id, or throws with the
+ *  server's message if the worker/broker is unreachable. */
+export async function runConnector(id: string): Promise<{ status: string; task_id: string }> {
+  const r = await fetch(`/v1/connectors/${id}/run`, {
+    method: "POST",
+    headers: allAuthHeaders(),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(detail || `Run failed (HTTP ${r.status})`);
+  }
+  return JSON.parse(raw) as { status: string; task_id: string };
+}
+
+// ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------
 
