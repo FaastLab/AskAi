@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from faastlab_askai_api.audit_helper import record_action
+from faastlab_askai_api.middleware.policy import enforce_policy
 from faastlab_askai_api.middleware.quota import enforce_quota
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_askai.service import AskAiService
@@ -55,6 +56,7 @@ async def ask(
     request: Request,
     principal: Principal = Depends(require_active_trial_or_subscription),
     _quota: Principal = Depends(enforce_quota("chat")),
+    _policy: Principal = Depends(enforce_policy("chat")),
 ):
     _require_byok_if_configured()
     request_id = _request_id(request)

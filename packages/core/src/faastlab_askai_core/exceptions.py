@@ -93,6 +93,11 @@ class GatewayError(AskAiError):
     """Base class for AI-gateway failures."""
 
 
+class PolicyViolation(GatewayError):
+    """A request is disallowed by the tenant's governance policy (suspended
+    AI, model not on the allow-list, etc.). The API maps this to HTTP 403."""
+
+
 class PromptNotFoundError(GatewayError):
     """No prompt matches the requested name (and version)."""
 

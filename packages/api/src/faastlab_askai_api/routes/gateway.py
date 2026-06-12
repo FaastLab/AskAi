@@ -16,15 +16,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
+from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import require_scope
 from faastlab_askai_core.adapters import Principal
-from faastlab_askai_core.db import AuditLog, LLMUsage, get_sessionmaker
+from faastlab_askai_core.config import get_settings
+from faastlab_askai_core.db import AuditLog, LLMUsage, Tenant, get_sessionmaker
 from faastlab_askai_core.exceptions import PromptNotFoundError
 from faastlab_askai_core.gateway import (
     GatewayContext,
     PromptRegistry,
     QuotaService,
     QuotaStatus,
+    resolve_policy,
 )
 
 router = APIRouter(tags=["gateway"], prefix="/gateway")
@@ -396,6 +399,12 @@ async def save_prompt_version(
     version = await _prompts.save_version(
         name, body.template, description=body.description, activate=body.activate
     )
+    await record_action(
+        principal=principal,
+        action="prompt.update",
+        resource=f"/v1/gateway/prompts/{name}",
+        extra={"name": name, "version": version, "activated": body.activate},
+    )
     return {"name": name, "version": version}
 
 
@@ -410,4 +419,152 @@ async def activate_prompt_version(
         await _prompts.activate(name, body.version)
     except PromptNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await record_action(
+        principal=principal,
+        action="prompt.activate",
+        resource=f"/v1/gateway/prompts/{name}",
+        extra={"name": name, "version": body.version},
+    )
     return {"name": name, "version": body.version}
+
+
+# ---- #6 Security & governance: per-tenant policy (owner-only) ----------------
+
+
+class PolicyView(BaseModel):
+    enabled: bool
+    allowed_models: list[str]  # empty = any model allowed
+    max_tokens_per_request: int  # 0 = no cap
+    available_models: list[str]  # suggestions for the allow-list UI
+
+
+class PolicyUpdate(BaseModel):
+    enabled: bool = True
+    allowed_models: list[str] = Field(default_factory=list)
+    max_tokens_per_request: int = Field(default=0, ge=0, le=100000)
+
+
+def _available_models() -> list[str]:
+    s = get_settings()
+    seen: list[str] = []
+    for m in (s.llm_model, s.summarisation_model):
+        if m and m not in seen:
+            seen.append(m)
+    return seen
+
+
+@router.get("/policy", response_model=PolicyView)
+async def get_policy(
+    principal: Principal = Depends(require_scope("owner")),
+) -> PolicyView:
+    """The tenant's effective governance policy."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        settings = (
+            await session.execute(
+                select(Tenant.settings).where(Tenant.id == principal.tenant_id)
+            )
+        ).scalar_one_or_none()
+    p = resolve_policy(settings)
+    return PolicyView(
+        enabled=p.enabled,
+        allowed_models=list(p.allowed_models),
+        max_tokens_per_request=p.max_tokens_per_request,
+        available_models=_available_models(),
+    )
+
+
+@router.put("/policy", response_model=PolicyView)
+async def update_policy(
+    body: PolicyUpdate,
+    principal: Principal = Depends(require_scope("owner")),
+) -> PolicyView:
+    """Set the tenant's governance policy (suspend AI, restrict models, cap
+    tokens). Takes effect on the next request. The change is audited."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        tenant = await session.get(Tenant, principal.tenant_id)
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="tenant not found")
+        settings = dict(tenant.settings or {})
+        gateway_cfg = dict(settings.get("gateway") or {})
+        gateway_cfg["policy"] = {
+            "enabled": body.enabled,
+            "allowed_models": [m.strip() for m in body.allowed_models if m.strip()],
+            "max_tokens_per_request": body.max_tokens_per_request,
+        }
+        settings["gateway"] = gateway_cfg
+        tenant.settings = settings  # reassign so SQLAlchemy flags the JSONB dirty
+        await session.commit()
+
+    await record_action(
+        principal=principal,
+        action="policy.update",
+        resource="/v1/gateway/policy",
+        extra=gateway_cfg["policy"],
+    )
+
+    p = resolve_policy({"gateway": gateway_cfg})
+    return PolicyView(
+        enabled=p.enabled,
+        allowed_models=list(p.allowed_models),
+        max_tokens_per_request=p.max_tokens_per_request,
+        available_models=_available_models(),
+    )
+
+
+# ---- #6 Governance audit feed (owner-only) ----------------------------------
+
+_GOVERNANCE_ACTIONS = (
+    "policy.update",
+    "prompt.update",
+    "prompt.activate",
+    "signup",
+    "invite.create",
+)
+
+
+class GovernanceEvent(BaseModel):
+    created_at: datetime
+    action: str
+    user_id: str
+    resource: str | None
+    extra: dict
+
+
+@router.get("/governance-events", response_model=list[GovernanceEvent])
+async def governance_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: Principal = Depends(require_scope("owner")),
+) -> list[GovernanceEvent]:
+    """Recent governance-relevant audit rows (policy/prompt changes, signups,
+    invites) for the tenant — the 'who changed what' surface."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        rows = (
+            await session.execute(
+                select(
+                    AuditLog.created_at,
+                    AuditLog.action,
+                    AuditLog.user_id,
+                    AuditLog.resource,
+                    AuditLog.extra,
+                )
+                .where(
+                    AuditLog.tenant_id == principal.tenant_id,
+                    AuditLog.action.in_(_GOVERNANCE_ACTIONS),
+                )
+                .order_by(desc(AuditLog.id))
+                .limit(limit)
+            )
+        ).all()
+    return [
+        GovernanceEvent(
+            created_at=r.created_at,
+            action=r.action,
+            user_id=r.user_id,
+            resource=r.resource,
+            extra=r.extra or {},
+        )
+        for r in rows
+    ]
