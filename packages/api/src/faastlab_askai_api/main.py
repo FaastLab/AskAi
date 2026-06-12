@@ -46,6 +46,7 @@ from faastlab_askai_api.routes import (
     auth,
     connectors,
     documents,
+    feedback,
     health,
     ingest,
     search,
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router, prefix="/v1")
     app.include_router(search.router, prefix="/v1")
     app.include_router(ask.router, prefix="/v1")
+    app.include_router(feedback.router, prefix="/v1")
     app.include_router(sessions.router, prefix="/v1")
     app.include_router(gateway_route.router, prefix="/v1")
     app.include_router(connectors.router, prefix="/v1")

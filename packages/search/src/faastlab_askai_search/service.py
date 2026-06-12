@@ -17,11 +17,11 @@ from uuid import UUID
 
 from faastlab_askai_core.factory import get_reranker
 from faastlab_askai_core.tenancy import visible_tenant_ids
-
+from faastlab_askai_search.feedback import FeedbackStore, apply_feedback_nudge
 from faastlab_askai_search.filters import SearchFilters
+from faastlab_askai_search.rerankers.base import Reranker
 from faastlab_askai_search.retrievers.base import RetrievedChunk, Retriever
 from faastlab_askai_search.retrievers.hybrid import HybridRetriever
-from faastlab_askai_search.rerankers.base import Reranker
 
 ConfidenceFn = Callable[[list[RetrievedChunk]], float]
 
@@ -53,11 +53,17 @@ class SearchService:
         # (vs 28s with 25 candidates × bge-reranker-large). Bump for
         # GPU deployments via the constructor.
         retrieve_k: int = 12,
+        # Knowledge-layer #7: re-order the final hits using accumulated user
+        # feedback. Bounded (a hit moves at most ~2 positions) and defensive
+        # (any failure to read feedback → no-op). Pass a store=… to inject in
+        # tests, or feedback=False at call time to skip the DB read entirely.
+        feedback_store: FeedbackStore | None = None,
     ) -> None:
         self._retriever = retriever or HybridRetriever()
         self._reranker = reranker or get_reranker()  # type: ignore[assignment]
         self._confidence_fn = confidence_fn
         self._retrieve_k = retrieve_k
+        self._feedback_store = feedback_store
 
     async def search(
         self,
@@ -68,12 +74,16 @@ class SearchService:
         filters: SearchFilters | None = None,
         include_public_corpus: bool = True,
         rerank: bool = True,
+        feedback: bool = True,
     ) -> SearchOutcome:
-        """Filter → retrieve → (rerank?) → score.
+        """Filter → retrieve → (rerank?) → (feedback nudge?) → score.
 
         `rerank=False` skips the cross-encoder reranker entirely — useful
         when the caller wants the faster hybrid-only path (no CPU-bge
         cost). Hits are returned in RRF order with their RRF scores.
+
+        `feedback=False` skips the knowledge-layer #7 re-order — useful for
+        evaluation/benchmarks that want the raw retrieval order.
         """
         started = perf_counter()
         # Resolve which tenants the caller can read across: their own,
@@ -98,6 +108,10 @@ class SearchService:
             hits = await self._reranker.rerank(query, retrieved, top_n=k)
         else:
             hits = retrieved[:k]
+        # Knowledge-layer #7: nudge the final order by accumulated feedback.
+        # Bounded + defensive — no signal (the common case) leaves order intact.
+        if feedback:
+            hits = await self._apply_feedback(tenant_ids, query, hits)
         elapsed_ms = (perf_counter() - started) * 1000.0
         return SearchOutcome(
             query=query,
@@ -105,6 +119,23 @@ class SearchService:
             confidence=self._confidence_fn(hits),
             latency_ms=round(elapsed_ms, 2),
         )
+
+    async def _apply_feedback(
+        self,
+        tenant_ids: UUID | list[UUID],
+        query: str,
+        hits: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """Re-order `hits` using accumulated feedback signals. Never raises —
+        feedback is an optimisation, never a dependency of search."""
+        if not hits:
+            return hits
+        if self._feedback_store is None:
+            self._feedback_store = FeedbackStore()
+        signals = await self._feedback_store.signals_for(
+            tenant_ids=tenant_ids, query=query
+        )
+        return apply_feedback_nudge(hits, signals)
 
     # ---- Convenience for the API layer (Phase 6) ------------------------
 

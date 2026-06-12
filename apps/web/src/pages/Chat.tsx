@@ -5,7 +5,7 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, getSession, streamAsk, type Citation, type PublicConfig } from "../lib/api";
+import { getConfig, getSession, streamAsk, submitFeedback, type Citation, type PublicConfig } from "../lib/api";
 import { loadSettings } from "../lib/settings";
 
 export function ChatPage() {
@@ -85,6 +85,37 @@ export function ChatPage() {
 
   const blockedByByok = !!config?.require_byok && !hasKey;
 
+  // Submit a thumbs up/down (+optional correction) on the assistant message at
+  // `index`. The question is the preceding user turn; document ids come from
+  // the answer's citations — together they let the backend attribute the
+  // signal and nudge ranking for this question.
+  async function handleFeedback(
+    index: number,
+    rating: 1 | -1,
+    correction?: string,
+  ) {
+    const msg = messages[index];
+    if (!msg || msg.feedback) return;
+    const question = index > 0 ? messages[index - 1]?.content ?? "" : "";
+    // Optimistically reflect the vote so the bar collapses immediately.
+    setMessages((prev) => {
+      const next = [...prev];
+      if (next[index]) {
+        next[index] = { ...next[index], feedback: rating === 1 ? "up" : "down" };
+      }
+      return next;
+    });
+    await submitFeedback({
+      rating,
+      query: question,
+      request_id: msg.requestId ?? null,
+      session_id: sessionId,
+      correction: correction ?? null,
+      document_ids: (msg.citations ?? []).map((c) => c.document_id),
+      chunk_ids: (msg.citations ?? []).map((c) => c.chunk_id),
+    });
+  }
+
   async function ask(question: string) {
     if (blockedByByok) {
       setShowSettings(true);
@@ -128,6 +159,7 @@ export function ChatPage() {
               content: collected,
               citations,
               pending: false,
+              requestId: event.request_id ?? null,
             };
             return next;
           });
@@ -230,7 +262,15 @@ export function ChatPage() {
               </div>
             )}
             {messages.map((m, i) => (
-              <Message key={i} message={m} />
+              <Message
+                key={i}
+                message={m}
+                onFeedback={
+                  m.role === "assistant"
+                    ? (rating, correction) => handleFeedback(i, rating, correction)
+                    : undefined
+                }
+              />
             ))}
           </div>
         </div>

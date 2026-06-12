@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "../components/Sidebar";
 import {
+  getFeedbackSummary,
   getGatewayRequests,
   getGatewayTrace,
   getGatewayUsage,
+  type FeedbackSummary,
   type GatewayRequests,
   type GatewayTrace,
   type GatewayUsage,
@@ -43,6 +45,7 @@ export function UsagePage() {
   const [windowHours, setWindowHours] = useState(24);
   const [usage, setUsage] = useState<GatewayUsage | null>(null);
   const [feed, setFeed] = useState<GatewayRequests | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [trace, setTrace] = useState<GatewayTrace | null>(null);
   const [tracing, setTracing] = useState(false);
@@ -65,11 +68,13 @@ export function UsagePage() {
     Promise.all([
       getGatewayUsage(windowHours),
       getGatewayRequests(windowHours, 100),
+      getFeedbackSummary(windowHours),
     ])
-      .then(([u, f]) => {
+      .then(([u, f, fb]) => {
         if (cancelled) return;
         setUsage(u);
         setFeed(f);
+        setFeedback(fb);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -246,6 +251,62 @@ export function UsagePage() {
                     No requests in this window yet. Ask a question to see activity here.
                   </div>
                 )}
+              </div>
+
+              {/* #7 Feedback loop */}
+              <div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Stat
+                    label="Helpful rate"
+                    value={
+                      (feedback?.up ?? 0) + (feedback?.down ?? 0) > 0
+                        ? `${Math.round((feedback?.helpful_rate ?? 0) * 100)}%`
+                        : "—"
+                    }
+                    sub="of rated answers"
+                  />
+                  <Stat label="👍 Helpful" value={fmtInt(feedback?.up ?? 0)} sub="this window" />
+                  <Stat
+                    label="👎 Not helpful"
+                    value={fmtInt(feedback?.down ?? 0)}
+                    sub="this window"
+                    alert={(feedback?.down ?? 0) > 0}
+                  />
+                  <Stat
+                    label="Corrections"
+                    value={fmtInt(feedback?.corrections ?? 0)}
+                    sub="with suggested fix"
+                  />
+                </div>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-4 py-2 border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                    Recent corrections — these signals nudge retrieval ranking
+                  </div>
+                  {feedback && feedback.recent_corrections.length > 0 ? (
+                    <ul className="divide-y divide-slate-100">
+                      {feedback.recent_corrections.map((c, i) => (
+                        <li key={i} className="px-4 py-3 text-sm">
+                          <div className="text-xs text-ink-500">
+                            {new Date(c.created_at).toLocaleString()} ·{" "}
+                            {c.rating < 0 ? "👎" : "👍"}
+                          </div>
+                          {c.query && (
+                            <div className="mt-0.5 text-ink-700">
+                              <span className="text-ink-500">Q:</span> {c.query}
+                            </div>
+                          )}
+                          <div className="mt-1 rounded bg-amber-50 border border-amber-200 px-3 py-1.5 text-ink-800">
+                            {c.correction}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="p-6 text-sm text-ink-500">
+                      No corrections yet. Thumbs-down with a suggested fix in chat will appear here.
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}

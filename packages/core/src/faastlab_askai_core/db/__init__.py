@@ -1,6 +1,7 @@
 """Database — SQLAlchemy 2.x models, async session, helpers."""
 
 from faastlab_askai_core.db.models import (
+    AnswerFeedback,
     AuditLog,
     Base,
     ChatSession,
@@ -17,6 +18,7 @@ from faastlab_askai_core.db.models import (
 from faastlab_askai_core.db.session import get_engine, get_sessionmaker
 
 __all__ = [
+    "AnswerFeedback",
     "AuditLog",
     "Base",
     "ChatSession",

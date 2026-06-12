@@ -20,7 +20,7 @@ export type Citation = {
 export type AskEvent =
   | { event: "retrieve"; confidence: number; chunks: number }
   | { event: "token"; text: string }
-  | { event: "done"; session_id: string; citations: Citation[] };
+  | { event: "done"; session_id: string; citations: Citation[]; request_id?: string | null };
 
 export type PublicConfig = {
   name: string;
@@ -519,6 +519,56 @@ export async function runConnector(id: string): Promise<{ status: string; task_i
     throw new Error(detail || `Run failed (HTTP ${r.status})`);
   }
   return JSON.parse(raw) as { status: string; task_id: string };
+}
+
+// ----------------------------------------------------------------------------
+// #7 Feedback loop — rate answers (any member) + owner-only summary
+// ----------------------------------------------------------------------------
+
+/** Record a thumbs up/down (+optional correction) on an answer. The signal
+ *  nudges retrieval ranking for the same/similar question over time. */
+export async function submitFeedback(body: {
+  rating: 1 | -1;
+  query: string;
+  request_id?: string | null;
+  session_id?: string | null;
+  correction?: string | null;
+  document_ids?: string[];
+  chunk_ids?: string[];
+}): Promise<{ status: string; id: number } | null> {
+  const r = await fetch("/v1/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { status: string; id: number };
+}
+
+export type FeedbackCorrection = {
+  created_at: string;
+  query: string;
+  rating: number;
+  correction: string | null;
+};
+
+export type FeedbackSummary = {
+  window_hours: number;
+  up: number;
+  down: number;
+  corrections: number;
+  helpful_rate: number; // 0..1
+  recent_corrections: FeedbackCorrection[];
+};
+
+export async function getFeedbackSummary(
+  windowHours = 720,
+): Promise<FeedbackSummary | null> {
+  const r = await fetch(`/v1/gateway/feedback?window_hours=${windowHours}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as FeedbackSummary;
 }
 
 // ----------------------------------------------------------------------------
