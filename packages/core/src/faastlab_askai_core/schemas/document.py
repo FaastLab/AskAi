@@ -41,6 +41,7 @@ class DocumentRead(BaseModel):
     summary: str | None
     keyphrases: list[str] | None
     size_bytes: int | None
+    folder: str | None = None  # virtual folder path (management UI overlay)
     created_at: datetime
     updated_at: datetime
 
