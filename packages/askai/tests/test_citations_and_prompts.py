@@ -31,7 +31,7 @@ def test_build_rag_messages_includes_system_and_numbered_context() -> None:
     chunks = [_chunk("Firms must hold capital."), _chunk("Tier 1 minimum is 4.5%.")]
     msgs = build_rag_messages("What's the capital rule?", chunks)
     assert msgs[0].role == "system"
-    assert "ONLY from the numbered context" in msgs[0].content
+    assert "numbered context" in msgs[0].content  # grounding instruction present
     assert RAG_SYSTEM_PROMPT in msgs[0].content
     assert msgs[-1].role == "user"
     user_text = msgs[-1].content

@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from faastlab_askai_core.db import Prompt, get_sessionmaker
 from faastlab_askai_core.exceptions import PromptNotFoundError, PromptRenderError
@@ -46,6 +47,24 @@ class PromptRecord:
 
     def render(self, **variables: object) -> str:
         return render_template(self.template, variables)
+
+
+@dataclass(frozen=True, slots=True)
+class PromptVersion:
+    version: str
+    description: str | None
+    is_active: bool
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSummary:
+    name: str
+    active_template: str
+    active_version: str  # "default" when no DB version is active
+    source: str  # "db" | "default"
+    default_template: str | None  # the built-in code default, for "reset"
+    versions: list[PromptVersion]
 
 
 class _SafeMissing(dict):
@@ -123,3 +142,105 @@ class PromptRegistry:
         """Convenience: fetch then render in one call."""
         record = await self.get(name, version)
         return record.render(**variables)
+
+    # ---- Management (Prompts UI) -------------------------------------------
+
+    async def list_all(self) -> list[PromptSummary]:
+        """Every prompt the system knows: registered code defaults unioned with
+        DB-curated versions. The active template is the DB-active row if any,
+        else the code default."""
+        sm = get_sessionmaker()
+        async with sm() as session:
+            rows = (
+                await session.execute(select(Prompt).order_by(Prompt.created_at))
+            ).scalars().all()
+
+        by_name: dict[str, list[Prompt]] = {}
+        for row in rows:
+            by_name.setdefault(row.name, []).append(row)
+
+        names = sorted(set(by_name) | set(_DEFAULTS))
+        summaries: list[PromptSummary] = []
+        for name in names:
+            versions = by_name.get(name, [])
+            active = next((v for v in versions if v.is_active), None)
+            if active is not None:
+                template, active_version, source = active.template, active.version, "db"
+            else:
+                template, active_version, source = _DEFAULTS.get(name, ""), "default", "default"
+            summaries.append(
+                PromptSummary(
+                    name=name,
+                    active_template=template,
+                    active_version=active_version,
+                    source=source,
+                    default_template=_DEFAULTS.get(name),
+                    versions=[
+                        PromptVersion(
+                            version=v.version,
+                            description=v.description,
+                            is_active=v.is_active,
+                            created_at=v.created_at,
+                        )
+                        for v in reversed(versions)  # newest first
+                    ],
+                )
+            )
+        return summaries
+
+    async def save_version(
+        self,
+        name: str,
+        template: str,
+        *,
+        description: str | None = None,
+        activate: bool = True,
+    ) -> str:
+        """Insert a new version of `name` (auto-numbered vN). When `activate`,
+        deactivate the others and make this the live one. Returns the version."""
+        sm = get_sessionmaker()
+        async with sm() as session:
+            count = (
+                await session.execute(
+                    select(Prompt).where(Prompt.name == name)
+                )
+            ).scalars().all()
+            version = f"v{len(count) + 1}"
+            if activate:
+                await session.execute(
+                    update(Prompt).where(Prompt.name == name).values(is_active=False)
+                )
+            session.add(
+                Prompt(
+                    name=name,
+                    version=version,
+                    template=template,
+                    description=description,
+                    is_active=activate,
+                )
+            )
+            await session.commit()
+        return version
+
+    async def activate(self, name: str, version: str) -> None:
+        """Make a specific version live (rollback/forward). Raises if missing."""
+        sm = get_sessionmaker()
+        async with sm() as session:
+            exists = (
+                await session.execute(
+                    select(Prompt.id).where(
+                        Prompt.name == name, Prompt.version == version
+                    )
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                raise PromptNotFoundError(f"no prompt {name!r} version {version!r}")
+            await session.execute(
+                update(Prompt).where(Prompt.name == name).values(is_active=False)
+            )
+            await session.execute(
+                update(Prompt)
+                .where(Prompt.name == name, Prompt.version == version)
+                .values(is_active=True)
+            )
+            await session.commit()

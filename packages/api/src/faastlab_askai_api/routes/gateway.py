@@ -13,16 +13,23 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
 from faastlab_askai_api.middleware.principal import require_scope
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.db import AuditLog, LLMUsage, get_sessionmaker
-from faastlab_askai_core.gateway import GatewayContext, QuotaService, QuotaStatus
+from faastlab_askai_core.exceptions import PromptNotFoundError
+from faastlab_askai_core.gateway import (
+    GatewayContext,
+    PromptRegistry,
+    QuotaService,
+    QuotaStatus,
+)
 
 router = APIRouter(tags=["gateway"], prefix="/gateway")
 _quota = QuotaService()
+_prompts = PromptRegistry()
 
 
 class QuotaView(BaseModel):
@@ -320,3 +327,87 @@ async def gateway_request_trace(
         sources=sources,
         calls=calls,
     )
+
+
+# ---- #4/#5 Prompt management (owner-only): live prompt engineering ----------
+
+
+class PromptVersionView(BaseModel):
+    version: str
+    description: str | None
+    is_active: bool
+    created_at: datetime
+
+
+class PromptView(BaseModel):
+    name: str
+    active_template: str
+    active_version: str
+    source: str  # "db" | "default"
+    default_template: str | None
+    versions: list[PromptVersionView]
+
+
+class SaveVersionBody(BaseModel):
+    template: str = Field(min_length=1, max_length=20000)
+    description: str | None = Field(default=None, max_length=500)
+    activate: bool = True
+
+
+class ActivateBody(BaseModel):
+    version: str
+
+
+@router.get("/prompts", response_model=list[PromptView])
+async def list_prompts(
+    principal: Principal = Depends(require_scope("owner")),
+) -> list[PromptView]:
+    """All prompts (code defaults + DB-curated versions) with the active text."""
+    summaries = await _prompts.list_all()
+    return [
+        PromptView(
+            name=s.name,
+            active_template=s.active_template,
+            active_version=s.active_version,
+            source=s.source,
+            default_template=s.default_template,
+            versions=[
+                PromptVersionView(
+                    version=v.version,
+                    description=v.description,
+                    is_active=v.is_active,
+                    created_at=v.created_at,
+                )
+                for v in s.versions
+            ],
+        )
+        for s in summaries
+    ]
+
+
+@router.post("/prompts/{name}/versions", status_code=201)
+async def save_prompt_version(
+    name: str,
+    body: SaveVersionBody,
+    principal: Principal = Depends(require_scope("owner")),
+) -> dict[str, str]:
+    """Save a new version of a prompt (and activate it by default). Takes effect
+    on the next request — no redeploy."""
+    version = await _prompts.save_version(
+        name, body.template, description=body.description, activate=body.activate
+    )
+    return {"name": name, "version": version}
+
+
+@router.post("/prompts/{name}/activate")
+async def activate_prompt_version(
+    name: str,
+    body: ActivateBody,
+    principal: Principal = Depends(require_scope("owner")),
+) -> dict[str, str]:
+    """Make a specific version live (rollback/forward)."""
+    try:
+        await _prompts.activate(name, body.version)
+    except PromptNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"name": name, "version": body.version}
