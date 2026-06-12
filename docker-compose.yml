@@ -121,6 +121,11 @@ services:
       - -A
       - faastlab_askai_indexing.celery_app:celery_app
       - worker
+      # --beat embeds the scheduler in this worker process (fine for a single
+      # worker). It fires the periodic "run-due-indexers" tick so folder data
+      # sources auto-index on their schedule. For multi-worker prod, split beat
+      # into its own service instead.
+      - --beat
       - --loglevel=info
       - --concurrency=2
     restart: unless-stopped
