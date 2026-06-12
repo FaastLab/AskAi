@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
 from faastlab_askai_api.middleware.principal import require_scope
 from faastlab_askai_core.adapters import Principal
-from faastlab_askai_core.db import LLMUsage, get_sessionmaker
+from faastlab_askai_core.db import AuditLog, LLMUsage, get_sessionmaker
 from faastlab_askai_core.gateway import GatewayContext, QuotaService, QuotaStatus
 
 router = APIRouter(tags=["gateway"], prefix="/gateway")
@@ -124,6 +124,7 @@ class LatencyStats(BaseModel):
 
 
 class RequestRow(BaseModel):
+    request_id: str | None
     created_at: datetime
     purpose: str
     model: str | None
@@ -184,6 +185,7 @@ async def gateway_requests(
     async with sm() as session:
         result = await session.execute(
             select(
+                LLMUsage.request_id,
                 LLMUsage.created_at,
                 LLMUsage.purpose,
                 LLMUsage.model,
@@ -204,6 +206,7 @@ async def gateway_requests(
 
     requests = [
         RequestRow(
+            request_id=r.request_id,
             created_at=r.created_at,
             purpose=r.purpose,
             model=r.model,
@@ -217,3 +220,103 @@ async def gateway_requests(
     ]
     stats = compute_request_stats([(r.status, r.latency_ms) for r in rows])
     return RequestsResponse(window_hours=window_hours, stats=stats, requests=requests)
+
+
+# ---- #5 Observability: single-request trace / failure replay ----------------
+
+
+class TraceCall(BaseModel):
+    created_at: datetime
+    purpose: str
+    provider: str | None
+    model: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_usd: float
+    latency_ms: float | None
+    status: str
+    error: str | None
+
+
+class RequestTrace(BaseModel):
+    request_id: str
+    query: str | None  # the user's question (from the audit row)
+    response_summary: str | None
+    sources: list[dict]  # citations
+    calls: list[TraceCall]  # the model call(s) recorded for this request
+
+
+@router.get("/requests/{request_id}", response_model=RequestTrace)
+async def gateway_request_trace(
+    request_id: str,
+    principal: Principal = Depends(require_scope("owner")),
+) -> RequestTrace:
+    """Full trace for one request_id: the model call(s) from the ledger joined
+    with the audit row (query, answer summary, sources) — i.e. failure replay.
+    Tenant-scoped: only the caller's own requests."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        usage_rows = (
+            await session.execute(
+                select(
+                    LLMUsage.created_at,
+                    LLMUsage.purpose,
+                    LLMUsage.provider,
+                    LLMUsage.model,
+                    LLMUsage.prompt_tokens,
+                    LLMUsage.completion_tokens,
+                    LLMUsage.total_tokens,
+                    LLMUsage.cost_usd,
+                    LLMUsage.latency_ms,
+                    LLMUsage.status,
+                    LLMUsage.error,
+                )
+                .where(
+                    LLMUsage.tenant_id == principal.tenant_id,
+                    LLMUsage.request_id == request_id,
+                )
+                .order_by(LLMUsage.id)
+            )
+        ).all()
+        audit = (
+            await session.execute(
+                select(
+                    AuditLog.query, AuditLog.response_summary, AuditLog.sources
+                )
+                .where(
+                    AuditLog.tenant_id == principal.tenant_id,
+                    AuditLog.extra["request_id"].astext == request_id,
+                )
+                .order_by(desc(AuditLog.id))
+                .limit(1)
+            )
+        ).first()
+
+    if not usage_rows and audit is None:
+        raise HTTPException(status_code=404, detail="Unknown request_id")
+
+    calls = [
+        TraceCall(
+            created_at=r.created_at,
+            purpose=r.purpose,
+            provider=r.provider,
+            model=r.model,
+            prompt_tokens=int(r.prompt_tokens or 0),
+            completion_tokens=int(r.completion_tokens or 0),
+            total_tokens=int(r.total_tokens or 0),
+            cost_usd=float(r.cost_usd or 0.0),
+            latency_ms=r.latency_ms,
+            status=r.status,
+            error=r.error,
+        )
+        for r in usage_rows
+    ]
+    sources = list((audit.sources or {}).get("items", [])) if audit else []
+    return RequestTrace(
+        request_id=request_id,
+        query=audit.query if audit else None,
+        response_summary=audit.response_summary if audit else None,
+        sources=sources,
+        calls=calls,
+    )

@@ -66,6 +66,7 @@ class AskAiService:
         session_id: UUID | None = None,
         filters: SearchFilters | None = None,
         rerank: bool = True,
+        request_id: str | None = None,
     ) -> AskOutcome:
         started = perf_counter()
         session_uuid, history = await self._memory.load(
@@ -75,7 +76,9 @@ class AskAiService:
         retrieval = await self._do_retrieval(tenant_id, question, filters, rerank)
         retrieval_ms = retrieval.latency_ms
 
-        ctx = GatewayContext(tenant_id=tenant_id, user_id=user_id, purpose="chat")
+        ctx = GatewayContext(
+            tenant_id=tenant_id, user_id=user_id, purpose="chat", request_id=request_id
+        )
         if retrieval.hits:
             messages = build_rag_messages(question, retrieval.hits, history=history)
             generated = await self._gateway.complete(
@@ -121,6 +124,7 @@ class AskAiService:
         session_id: UUID | None = None,
         filters: SearchFilters | None = None,
         rerank: bool = True,
+        request_id: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """Yield JSON-friendly events:
             {"event": "retrieve", "confidence": 0.42}
@@ -150,7 +154,9 @@ class AskAiService:
         }
 
         collected: list[str] = []
-        ctx = GatewayContext(tenant_id=tenant_id, user_id=user_id, purpose="chat")
+        ctx = GatewayContext(
+            tenant_id=tenant_id, user_id=user_id, purpose="chat", request_id=request_id
+        )
         if not retrieval.hits:
             collected.append(REFUSAL_NO_CONTEXT)
             yield {"event": "token", "text": REFUSAL_NO_CONTEXT}

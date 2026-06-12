@@ -256,6 +256,7 @@ export type GatewayUsage = {
 };
 
 export type GatewayRequestRow = {
+  request_id: string | null;
   created_at: string;
   purpose: string;
   model: string | null;
@@ -264,6 +265,28 @@ export type GatewayRequestRow = {
   latency_ms: number | null;
   status: string;
   error: string | null;
+};
+
+export type GatewayTraceCall = {
+  created_at: string;
+  purpose: string;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  latency_ms: number | null;
+  status: string;
+  error: string | null;
+};
+
+export type GatewayTrace = {
+  request_id: string;
+  query: string | null;
+  response_summary: string | null;
+  sources: Record<string, unknown>[];
+  calls: GatewayTraceCall[];
 };
 
 export type GatewayRequests = {
@@ -295,6 +318,16 @@ export async function getGatewayRequests(
   );
   if (!r.ok) return null;
   return (await r.json()) as GatewayRequests;
+}
+
+export async function getGatewayTrace(
+  requestId: string,
+): Promise<GatewayTrace | null> {
+  const r = await fetch(`/v1/gateway/requests/${encodeURIComponent(requestId)}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayTrace;
 }
 
 // ----------------------------------------------------------------------------
