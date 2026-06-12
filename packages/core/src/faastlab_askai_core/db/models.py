@@ -171,6 +171,15 @@ class Document(Base):
         back_populates="document", cascade="all, delete-orphan"
     )
 
+    @property
+    def folder(self) -> str | None:
+        """Virtual folder path (Azure-blob-style prefix) for the documents
+        management UI. Stored in `metadata.folder` so there's no schema column
+        to migrate — folders are just an organisational overlay, not data the
+        engine depends on. `None`/absent means the tenant's root."""
+        value = (self.metadata_ or {}).get("folder")
+        return value or None
+
 
 class DocumentVersion(Base):
     __tablename__ = "document_versions"

@@ -10,8 +10,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
+from faastlab_askai_api.audit_helper import record_action
+from faastlab_askai_api.middleware.principal import (
+    FILE_TOKEN_TTL_SECONDS,
+    get_principal,
+    mint_file_token,
+    verify_file_token,
+)
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.db import Document, get_sessionmaker
 from faastlab_askai_core.exceptions import AuthenticationError, TenantNotFoundError
@@ -19,16 +27,33 @@ from faastlab_askai_core.factory import get_storage
 from faastlab_askai_core.schemas.document import DocumentRead, DocumentSummary
 from faastlab_askai_core.tenancy import visible_tenant_ids
 
-from faastlab_askai_api.middleware.principal import (
-    FILE_TOKEN_TTL_SECONDS,
-    get_principal,
-    mint_file_token,
-    verify_file_token,
-)
-
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
+
+# A folder path may not exceed this; segments are slash-separated.
+_MAX_FOLDER_LEN = 256
+
+
+def normalize_folder(raw: str | None) -> str | None:
+    """Normalise a virtual folder path (Azure-blob-style prefix).
+
+    Trims whitespace, strips leading/trailing slashes, collapses repeated
+    slashes, and drops empty / `.` / `..` segments (so a path can never
+    traverse upward — folders are a flat label namespace, not a filesystem).
+    Returns `None` for root (empty input). Pure + deterministic for testing.
+    """
+    if not raw:
+        return None
+    segments = [
+        seg.strip()
+        for seg in raw.replace("\\", "/").split("/")
+    ]
+    cleaned = [s for s in segments if s and s not in (".", "..")]
+    if not cleaned:
+        return None
+    path = "/".join(cleaned)
+    return path[:_MAX_FOLDER_LEN].rstrip("/") or None
 
 
 @router.get("/documents", response_model=list[DocumentRead])
@@ -42,6 +67,13 @@ async def list_documents(
             "Filter by doc_type — typically the regulator code "
             "(fca/boe/pra/hmrc/ico/tpr). Special value 'uploads' returns "
             "user-uploaded docs only (source_uri starts with upload://)."
+        ),
+    ),
+    folder: str | None = Query(
+        None,
+        description=(
+            "Filter by virtual folder path (management UI). Exact match on the "
+            "document's `metadata.folder`. Omit for all folders."
         ),
     ),
     limit: int = Query(200, ge=1, le=500),
@@ -67,6 +99,10 @@ async def list_documents(
             stmt = stmt.where(Document.source_uri.like("upload://%"))
         elif doc_type:
             stmt = stmt.where(Document.doc_type == doc_type.lower())
+        if folder is not None:
+            stmt = stmt.where(
+                Document.metadata_["folder"].astext == normalize_folder(folder)
+            )
         stmt = stmt.order_by(desc(Document.created_at)).limit(limit).offset(offset)
         rows = await session.execute(stmt)
         docs = rows.scalars().all()
@@ -389,3 +425,112 @@ async def get_document_summary(
         keyphrases=doc.keyphrases,
         generated_at=doc.updated_at,
     )
+
+
+# ---- Management: move/rename + delete (caller's OWN documents only) ----------
+
+
+class DocumentManageUpdate(BaseModel):
+    """Patch a document's organisational fields. `folder` is set to `None`
+    (move to root) by sending an empty string; omit a field to leave it."""
+
+    folder: str | None = Field(default=None, description="Virtual folder path")
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    # Distinguish 'omit folder' from 'move to root' — the model can't, so the
+    # route inspects the raw fields set. Pydantic v2 exposes this via
+    # model_fields_set.
+
+
+async def _load_owned_document(session, principal: Principal, document_id: UUID) -> Document:
+    """Fetch a document the caller's OWN tenant owns, or raise.
+
+    Management actions (move/rename/delete) are restricted to the tenant's own
+    documents — the shared public regulator corpus is read-only, so a 404 is
+    returned for docs the caller can *read* (via the public union) but not own.
+    """
+    result = await session.execute(
+        select(Document).where(
+            (Document.id == document_id)
+            & (Document.tenant_id == principal.tenant_id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(
+            status_code=404,
+            detail="document not found, or it belongs to the read-only shared corpus",
+        )
+    return doc
+
+
+@router.patch("/documents/{document_id}", response_model=DocumentRead)
+async def update_document(
+    document_id: UUID,
+    body: DocumentManageUpdate,
+    principal: Principal = Depends(get_principal),
+) -> DocumentRead:
+    """Move (set folder) and/or rename a document the caller's tenant owns."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        doc = await _load_owned_document(session, principal, document_id)
+        changed: dict[str, object] = {}
+
+        if "folder" in body.model_fields_set:
+            new_folder = normalize_folder(body.folder)
+            metadata = dict(doc.metadata_ or {})
+            if new_folder is None:
+                metadata.pop("folder", None)
+            else:
+                metadata["folder"] = new_folder
+            doc.metadata_ = metadata  # reassign so SQLAlchemy flags JSONB dirty
+            changed["folder"] = new_folder
+
+        if body.title is not None and body.title != doc.title:
+            doc.title = body.title
+            changed["title"] = body.title
+
+        if changed:
+            await session.commit()
+            await session.refresh(doc)
+
+    if changed:
+        await record_action(
+            principal=principal,
+            action="document.update",
+            resource=f"/v1/documents/{document_id}",
+            extra={"document_id": str(document_id), **changed},
+        )
+    return DocumentRead.model_validate(doc)
+
+
+@router.delete("/documents/{document_id}", status_code=200)
+async def delete_document(
+    document_id: UUID,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, str]:
+    """Permanently delete a document the caller's tenant owns: its chunks and
+    version rows cascade in the database; the stored original is removed from
+    object storage best-effort. The shared regulator corpus is never touched."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        doc = await _load_owned_document(session, principal, document_id)
+        title = doc.title
+        storage_key = doc.storage_key
+        await session.delete(doc)  # cascades chunks + document_versions
+        await session.commit()
+
+    # Best-effort storage cleanup — a missing/failed object must not leave the
+    # DB row resurrected, so we delete the row first and clean storage after.
+    if storage_key:
+        try:
+            await get_storage().delete(storage_key)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("delete: storage object %s cleanup failed: %s", storage_key, exc)
+
+    await record_action(
+        principal=principal,
+        action="document.delete",
+        resource=f"/v1/documents/{document_id}",
+        extra={"document_id": str(document_id), "title": title},
+    )
+    return {"status": "deleted", "document_id": str(document_id)}

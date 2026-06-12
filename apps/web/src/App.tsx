@@ -6,6 +6,7 @@ import { AdminPage } from "./pages/Admin";
 import { AuditPage } from "./pages/Audit";
 import { ChatPage } from "./pages/Chat";
 import { DocumentsPage } from "./pages/Documents";
+import { FilesPage } from "./pages/Files";
 import { LoginPage } from "./pages/Login";
 import { PromptsPage } from "./pages/Prompts";
 import { SecurityPage } from "./pages/Security";
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/chat/:sessionId" element={<RequireAuth><ChatPage /></RequireAuth>} />
         <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/documents/:documentId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
+        <Route path="/files" element={<RequireAuth><FilesPage /></RequireAuth>} />
         <Route path="/validator" element={<RequireAuth><ValidatorPage /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/audit" element={<RequireAuth><AuditPage /></RequireAuth>} />

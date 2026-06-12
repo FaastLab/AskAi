@@ -631,9 +631,35 @@ export type DocumentRecord = {
   summary: string | null;
   keyphrases: string[] | null;
   size_bytes: number | null;
+  folder: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Move (set folder) and/or rename a document the caller's tenant owns.
+ *  Send folder: "" to move to root; omit a field to leave it unchanged. */
+export async function updateDocument(
+  id: string,
+  patch: { folder?: string; title?: string },
+): Promise<DocumentRecord | null> {
+  const r = await fetch(`/v1/documents/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as DocumentRecord;
+}
+
+/** Permanently delete a document the caller's tenant owns (chunks + stored
+ *  original go too). Returns true on success. */
+export async function deleteDocument(id: string): Promise<boolean> {
+  const r = await fetch(`/v1/documents/${id}`, {
+    method: "DELETE",
+    headers: allAuthHeaders(),
+  });
+  return r.ok;
+}
 
 /** Upload one document; the api ingests synchronously (parse + chunk +
  *  embed + store). Returns when ingestion finishes. */
