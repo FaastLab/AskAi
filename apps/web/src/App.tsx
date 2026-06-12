@@ -10,6 +10,7 @@ import { DataSourcesPage } from "./pages/DataSources";
 import { DocumentsPage } from "./pages/Documents";
 import { FilesPage } from "./pages/Files";
 import { LoginPage } from "./pages/Login";
+import { McpPage } from "./pages/Mcp";
 import { PromptsPage } from "./pages/Prompts";
 import { SecurityPage } from "./pages/Security";
 import { SignupPage } from "./pages/Signup";
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/security" element={<RequireAuth><SecurityPage /></RequireAuth>} />
         <Route path="/connectors" element={<RequireAuth><ConnectorsPage /></RequireAuth>} />
         <Route path="/data-sources" element={<RequireAuth><DataSourcesPage /></RequireAuth>} />
+        <Route path="/mcp" element={<RequireAuth><McpPage /></RequireAuth>} />
 
         {/* Catch-all — unknown paths bounce home (which RequireAuth then
             sends to /login if the visitor isn't authenticated). */}

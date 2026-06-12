@@ -695,6 +695,45 @@ export async function uploadToSource(
 }
 
 // ----------------------------------------------------------------------------
+// MCP — connection settings + tool inspector (owner-only)
+// ----------------------------------------------------------------------------
+
+export type McpTool = {
+  name: string;
+  description: string;
+  inputSchema: { properties?: Record<string, unknown>; required?: string[] };
+};
+
+export type McpInfo = {
+  enabled: boolean;
+  transport: string;
+  endpoint_path: string; // "/mcp"
+  tenant: string;
+  shared_token: string | null;
+  tools: McpTool[];
+};
+
+export async function getMcpInfo(): Promise<McpInfo | null> {
+  const r = await fetch("/v1/mcp/info", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as McpInfo;
+}
+
+/** Run one MCP tool against your own corpus — the in-app inspector test. */
+export async function callMcpTool(
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<{ tool: string; result: string; latency_ms: number } | null> {
+  const r = await fetch("/v1/mcp/call", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ tool, arguments: args }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { tool: string; result: string; latency_ms: number };
+}
+
+// ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------
 
