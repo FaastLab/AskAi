@@ -13,6 +13,11 @@ non-breaking until a wrapper chooses to re-vendor.
 """
 
 from faastlab_askai_core.gateway.context import GatewayContext
+from faastlab_askai_core.gateway.policy import (
+    Policy,
+    PolicyEngine,
+    resolve_policy,
+)
 from faastlab_askai_core.gateway.prompts import (
     PromptRecord,
     PromptRegistry,
@@ -51,6 +56,8 @@ __all__ = [
     "GatewayResult",
     "ModelRoute",
     "ModelRouter",
+    "Policy",
+    "PolicyEngine",
     "PromptRecord",
     "PromptRegistry",
     "PromptSummary",
@@ -67,6 +74,7 @@ __all__ = [
     "register_default",
     "render_template",
     "resolve_limits",
+    "resolve_policy",
     "resolve_route",
     "usage_from_text",
 ]

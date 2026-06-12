@@ -24,6 +24,7 @@ from time import perf_counter
 from faastlab_askai_core.adapters import LLMMessage
 from faastlab_askai_core.factory import get_llm_for
 from faastlab_askai_core.gateway.context import GatewayContext
+from faastlab_askai_core.gateway.policy import Policy, PolicyEngine, resolve_policy
 from faastlab_askai_core.gateway.quota import QuotaService
 from faastlab_askai_core.gateway.router import ModelRoute, load_tenant_settings, resolve_route
 from faastlab_askai_core.gateway.usage import UsageRecord, record_usage, usage_from_text
@@ -47,16 +48,20 @@ class AIGateway:
 
     def __init__(self, *, quota: QuotaService | None = None) -> None:
         self._quota = quota or QuotaService()
+        self._policy = PolicyEngine()
 
     async def _route_and_gate(
         self, ctx: GatewayContext
-    ) -> tuple[ModelRoute, object]:
-        # Load the tenant row once; share with router + quota (no double read).
+    ) -> tuple[ModelRoute, object, Policy]:
+        # Load the tenant row once; share with router + quota + policy.
         tenant_settings = await load_tenant_settings(ctx.tenant_id)
         route = resolve_route(tenant_settings, ctx.purpose)
+        policy = resolve_policy(tenant_settings)
+        # Governance: suspended tenant / disallowed model -> PolicyViolation.
+        self._policy.enforce(policy, model=route.model)
         # Raises QuotaExceeded if over budget (before any model capacity spent).
         await self._quota.enforce(ctx, tenant_settings=tenant_settings or {})
-        return route, get_llm_for(route.provider)
+        return route, get_llm_for(route.provider), policy
 
     async def complete(
         self,
@@ -66,7 +71,8 @@ class AIGateway:
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> GatewayResult:
-        route, adapter = await self._route_and_gate(ctx)
+        route, adapter, policy = await self._route_and_gate(ctx)
+        max_tokens = self._policy.effective_max_tokens(policy, max_tokens)
         prompt = _prompt_text(messages)
         t0 = perf_counter()
         try:
@@ -106,7 +112,8 @@ class AIGateway:
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        route, adapter = await self._route_and_gate(ctx)
+        route, adapter, policy = await self._route_and_gate(ctx)
+        max_tokens = self._policy.effective_max_tokens(policy, max_tokens)
         prompt = _prompt_text(messages)
         parts: list[str] = []
         t0 = perf_counter()

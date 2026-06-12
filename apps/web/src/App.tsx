@@ -8,6 +8,7 @@ import { ChatPage } from "./pages/Chat";
 import { DocumentsPage } from "./pages/Documents";
 import { LoginPage } from "./pages/Login";
 import { PromptsPage } from "./pages/Prompts";
+import { SecurityPage } from "./pages/Security";
 import { SignupPage } from "./pages/Signup";
 import { UsagePage } from "./pages/Usage";
 import { ValidatorPage } from "./pages/Validator";
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/audit" element={<RequireAuth><AuditPage /></RequireAuth>} />
         <Route path="/usage" element={<RequireAuth><UsagePage /></RequireAuth>} />
         <Route path="/prompts" element={<RequireAuth><PromptsPage /></RequireAuth>} />
+        <Route path="/security" element={<RequireAuth><SecurityPage /></RequireAuth>} />
 
         {/* Catch-all — unknown paths bounce home (which RequireAuth then
             sends to /login if the visitor isn't authenticated). */}

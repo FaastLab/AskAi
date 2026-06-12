@@ -386,6 +386,51 @@ export async function activatePromptVersion(
   if (!r.ok) throw new Error(`Activate failed (HTTP ${r.status})`);
 }
 
+// ---- #6 Security & governance (owner-only) ---------------------------------
+
+export type GatewayPolicy = {
+  enabled: boolean;
+  allowed_models: string[]; // empty = any
+  max_tokens_per_request: number; // 0 = no cap
+  available_models: string[];
+};
+
+export async function getPolicy(): Promise<GatewayPolicy | null> {
+  const r = await fetch("/v1/gateway/policy", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayPolicy;
+}
+
+export async function updatePolicy(body: {
+  enabled: boolean;
+  allowed_models: string[];
+  max_tokens_per_request: number;
+}): Promise<GatewayPolicy> {
+  const r = await fetch("/v1/gateway/policy", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Save failed (HTTP ${r.status})`);
+  return (await r.json()) as GatewayPolicy;
+}
+
+export type GovernanceEvent = {
+  created_at: string;
+  action: string;
+  user_id: string;
+  resource: string | null;
+  extra: Record<string, unknown>;
+};
+
+export async function getGovernanceEvents(): Promise<GovernanceEvent[] | null> {
+  const r = await fetch("/v1/gateway/governance-events", {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as GovernanceEvent[];
+}
+
 // ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------

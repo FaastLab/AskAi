@@ -27,15 +27,12 @@ logging.basicConfig(
     force=True,
 )
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
-from faastlab_askai_core.config import get_settings
-from faastlab_askai_core.factory import get_reranker
-from faastlab_askai_mcp.http_app import create_mcp_handler
 
 from faastlab_askai_api.middleware.audit import AuditMiddleware
 from faastlab_askai_api.middleware.byok import BYOKMiddleware
@@ -47,16 +44,26 @@ from faastlab_askai_api.routes import (
     ask,
     audit,
     auth,
-    config as config_route,
     documents,
-    gateway as gateway_route,
     health,
     ingest,
     search,
     sessions,
     tenants,
+)
+from faastlab_askai_api.routes import (
+    config as config_route,
+)
+from faastlab_askai_api.routes import (
+    gateway as gateway_route,
+)
+from faastlab_askai_api.routes import (
     validators as validators_route,
 )
+from faastlab_askai_core.config import get_settings
+from faastlab_askai_core.exceptions import PolicyViolation
+from faastlab_askai_core.factory import get_reranker
+from faastlab_askai_mcp.http_app import create_mcp_handler
 
 log = logging.getLogger(__name__)
 
@@ -67,9 +74,9 @@ async def _prewarm_reranker() -> None:
         reranker = get_reranker()
         if hasattr(reranker, "_ensure_model"):
             log.info("Pre-warming reranker model …")
-            await asyncio.to_thread(reranker._ensure_model)  # noqa: SLF001
+            await asyncio.to_thread(reranker._ensure_model)
             log.info("Reranker pre-warm complete")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Non-fatal: first request will pay the warm-up cost instead.
         log.warning("Reranker pre-warm skipped: %s", exc)
 
@@ -107,6 +114,13 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # Governance policy violations -> 403 (defence-in-depth; the /v1/ask
+    # dependency already rejects early, this covers any other path).
+    async def _policy_violation_handler(_req: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+    app.add_exception_handler(PolicyViolation, _policy_violation_handler)
 
     app.add_middleware(
         CORSMiddleware,
