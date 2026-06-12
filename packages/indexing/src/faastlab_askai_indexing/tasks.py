@@ -66,6 +66,43 @@ def run_indexer(indexer_id: str) -> dict[str, Any]:
     return asyncio.run(_run_indexer(UUID(indexer_id)))
 
 
+@celery_app.task(name="askai.indexing.run_due_indexers")
+def run_due_indexers() -> dict[str, Any]:
+    """Scheduler tick: enqueue every enabled indexer whose schedule is due.
+
+    Wired to a Celery beat entry (see celery_app); fires periodically and
+    enqueues a `run_indexer` for each indexer that's due. This is what makes a
+    folder data source index automatically on its schedule."""
+    return asyncio.run(_run_due_indexers())
+
+
+async def _run_due_indexers() -> dict[str, Any]:
+    from faastlab_askai_core.db import Indexer, get_sessionmaker
+    from faastlab_askai_core.ingestion import is_indexer_due
+
+    now = datetime.now(UTC)
+    sm = get_sessionmaker()
+    enqueued: list[str] = []
+    async with sm() as session:
+        # Only consider enabled indexers — disabled ones are paused. We read the
+        # few fields the due-check needs rather than whole rows.
+        rows = (
+            await session.execute(
+                select(Indexer.id, Indexer.schedule, Indexer.last_run_at).where(
+                    Indexer.enabled.is_(True)
+                )
+            )
+        ).all()
+    for indexer_id, schedule, last_run_at in rows:
+        # Pure decision (tested separately): is this indexer due to run now?
+        if is_indexer_due(
+            enabled=True, schedule=schedule, last_run_at=last_run_at, now=now
+        ):
+            run_indexer.delay(str(indexer_id))
+            enqueued.append(str(indexer_id))
+    return {"enqueued": enqueued, "count": len(enqueued)}
+
+
 async def _run_indexer(indexer_id: UUID) -> dict[str, Any]:
     from faastlab_askai_core.db import Indexer, IndexerRun, Source, get_sessionmaker
 
@@ -80,6 +117,7 @@ async def _run_indexer(indexer_id: UUID) -> dict[str, Any]:
             return {"status": "error", "error": "source not found"}
         tenant_id = indexer.tenant_id
         cfg_raw = dict(source.config or {})
+        kind = source.kind
         doc_type = source.category
         run = IndexerRun(
             indexer_id=indexer_id,
@@ -91,22 +129,34 @@ async def _run_indexer(indexer_id: UUID) -> dict[str, Any]:
         await session.commit()
         run_id = run.id
 
-    cfg = WebCrawlConfig(
-        start_urls=list(cfg_raw.get("start_urls") or []),
-        mode=str(cfg_raw.get("mode") or "crawl"),
-        url_prefix=cfg_raw.get("url_prefix"),
-        include=list(cfg_raw.get("include") or []),
-        exclude=list(cfg_raw.get("exclude") or []),
-        max_pages=int(cfg_raw.get("max_pages") or 50),
-        max_depth=int(cfg_raw.get("max_depth") or 2),
-        doc_type=doc_type,
-    )
+    # Pick the connector by source kind. A "folder" (or "s3") source reads the
+    # files a user uploaded into its object-storage prefix — that's the demo
+    # flow (drop PDFs in a folder, the indexer picks them up). Everything else
+    # is a web crawl (the regulator presets).
+    connector: Any
+    if kind in ("folder", "s3"):
+        # S3Connector lists + yields every object under the prefix; the pipeline
+        # then parses/chunks/embeds each (and skips ones it already has by hash).
+        connector = S3Connector(prefix=str(cfg_raw.get("prefix") or ""))
+    else:
+        connector = WebConnector(
+            WebCrawlConfig(
+                start_urls=list(cfg_raw.get("start_urls") or []),
+                mode=str(cfg_raw.get("mode") or "crawl"),
+                url_prefix=cfg_raw.get("url_prefix"),
+                include=list(cfg_raw.get("include") or []),
+                exclude=list(cfg_raw.get("exclude") or []),
+                max_pages=int(cfg_raw.get("max_pages") or 50),
+                max_depth=int(cfg_raw.get("max_depth") or 2),
+                doc_type=doc_type,
+            )
+        )
 
     pages = ingested = skipped = failed = 0
     error: str | None = None
     try:
         pipeline = IngestionPipeline(tenant_id)
-        async for r in pipeline.ingest(WebConnector(cfg)):
+        async for r in pipeline.ingest(connector):
             pages += 1
             if r.skipped and r.note.startswith("error:"):
                 failed += 1

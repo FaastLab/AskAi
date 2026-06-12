@@ -603,10 +603,12 @@ export type IngestIndexer = {
   id: string;
   name: string;
   enabled: boolean;
+  source_id: string | null;
+  kind: string | null; // "folder" => uploadable; "web" => crawl preset
   category: string | null;
   license: string | null;
   preset_key: string | null;
-  schedule: Record<string, unknown>;
+  schedule: { interval_minutes?: number } & Record<string, unknown>;
   last_run_at: string | null;
   last_run: IngestRun | null;
 };
@@ -658,6 +660,38 @@ export async function deleteIndexer(id: string): Promise<boolean> {
     headers: allAuthHeaders(),
   });
   return r.ok;
+}
+
+/** Create a custom folder data source (+ its indexer). schedule_interval_minutes
+ *  null/0 = manual ("Run now") only. Returns the ids for upload + tracking. */
+export async function createFolderSource(body: {
+  name: string;
+  schedule_interval_minutes: number | null;
+}): Promise<{ source_id: string; indexer_id: string } | null> {
+  const r = await fetch("/v1/ingestion/sources/folder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { source_id: string; indexer_id: string };
+}
+
+/** Upload files into a folder source's storage prefix. They get indexed when
+ *  the indexer next runs (scheduled or "Run now") — not on upload. */
+export async function uploadToSource(
+  sourceId: string,
+  files: File[] | FileList,
+): Promise<{ uploaded: number } | null> {
+  const form = new FormData();
+  for (const f of Array.from(files)) form.append("files", f);
+  const r = await fetch(`/v1/ingestion/sources/${sourceId}/upload`, {
+    method: "POST",
+    headers: allAuthHeaders(), // no Content-Type — browser sets the multipart boundary
+    body: form,
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { uploaded: number };
 }
 
 // ----------------------------------------------------------------------------

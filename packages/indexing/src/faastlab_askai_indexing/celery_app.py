@@ -1,8 +1,14 @@
 """Celery app — broker + result backend from settings.
 
-Connector scheduling (#8) is opt-in: set `CONNECTORS_SCHEDULER_ENABLED=true`
-and run a Celery beat against this app to periodically enqueue due connectors.
-Manual 'run now' (the API enqueueing `run_web_connector`) needs no beat.
+Scheduling needs a Celery **beat** process running against this app
+(`celery -A faastlab_askai_indexing.celery_app beat`). Two periodic ticks:
+
+- `run-due-indexers` (every 60s, always registered) — the ingestion-pipeline
+  scheduler: enqueues any enabled Indexer whose schedule is due. This is what
+  makes a folder data source index automatically. Harmless if no beat runs;
+  manual "Run now" works regardless.
+- `run-due-connectors` (opt-in via `CONNECTORS_SCHEDULER_ENABLED=true`) — the
+  older JSONB web-connector scheduler.
 """
 
 from __future__ import annotations
@@ -38,15 +44,28 @@ def make_celery() -> Celery:
         task_acks_late=True,
         worker_prefetch_multiplier=1,
     )
-    # Opt-in periodic scheduler: enqueue connectors whose interval is due.
+    # Periodic schedules (only fire if a beat process is running).
+    beat: dict[str, dict] = {}
+
+    # Always on: the ingestion-pipeline scheduler. Ticks every 60s and enqueues
+    # indexers whose per-indexer interval has elapsed (the due-check is in
+    # run_due_indexers). 60s is just how often we *check* — the indexer's own
+    # interval_minutes decides how often it actually runs.
+    indexer_tick = int(os.getenv("INDEXER_SCHEDULER_INTERVAL_SECONDS", "60"))
+    beat["run-due-indexers"] = {
+        "task": "askai.indexing.run_due_indexers",
+        "schedule": schedule(run_every=timedelta(seconds=indexer_tick)),
+    }
+
+    # Opt-in: the older web-connector scheduler.
     if _truthy(os.getenv("CONNECTORS_SCHEDULER_ENABLED")):
         every = int(os.getenv("CONNECTORS_SCHEDULER_INTERVAL_SECONDS", "300"))
-        app.conf.beat_schedule = {
-            "run-due-connectors": {
-                "task": "askai.indexing.run_due_connectors",
-                "schedule": schedule(run_every=timedelta(seconds=every)),
-            }
+        beat["run-due-connectors"] = {
+            "task": "askai.indexing.run_due_connectors",
+            "schedule": schedule(run_every=timedelta(seconds=every)),
         }
+
+    app.conf.beat_schedule = beat
     return app
 
 
