@@ -155,6 +155,20 @@ export function Sidebar() {
         )}
         {loadAuth()?.user.role === "owner" && (
           <NavLink
+            to="/mcp"
+            className={({ isActive }) =>
+              `${navBase} ${isActive ? navActive : navInactive}`
+            }
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 2v6m6-6v6M5 8h14a1 1 0 0 1 1 1v3a8 8 0 0 1-16 0V9a1 1 0 0 1 1-1Z" />
+              <path d="M12 20v2" />
+            </svg>
+            MCP server
+          </NavLink>
+        )}
+        {loadAuth()?.user.role === "owner" && (
+          <NavLink
             to="/connectors"
             className={({ isActive }) =>
               `${navBase} ${isActive ? navActive : navInactive}`

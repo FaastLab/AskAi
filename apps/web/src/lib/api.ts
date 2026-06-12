@@ -603,10 +603,12 @@ export type IngestIndexer = {
   id: string;
   name: string;
   enabled: boolean;
+  source_id: string | null;
+  kind: string | null; // "folder" => uploadable; "web" => crawl preset
   category: string | null;
   license: string | null;
   preset_key: string | null;
-  schedule: Record<string, unknown>;
+  schedule: { interval_minutes?: number } & Record<string, unknown>;
   last_run_at: string | null;
   last_run: IngestRun | null;
 };
@@ -658,6 +660,77 @@ export async function deleteIndexer(id: string): Promise<boolean> {
     headers: allAuthHeaders(),
   });
   return r.ok;
+}
+
+/** Create a custom folder data source (+ its indexer). schedule_interval_minutes
+ *  null/0 = manual ("Run now") only. Returns the ids for upload + tracking. */
+export async function createFolderSource(body: {
+  name: string;
+  schedule_interval_minutes: number | null;
+}): Promise<{ source_id: string; indexer_id: string } | null> {
+  const r = await fetch("/v1/ingestion/sources/folder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { source_id: string; indexer_id: string };
+}
+
+/** Upload files into a folder source's storage prefix. They get indexed when
+ *  the indexer next runs (scheduled or "Run now") — not on upload. */
+export async function uploadToSource(
+  sourceId: string,
+  files: File[] | FileList,
+): Promise<{ uploaded: number } | null> {
+  const form = new FormData();
+  for (const f of Array.from(files)) form.append("files", f);
+  const r = await fetch(`/v1/ingestion/sources/${sourceId}/upload`, {
+    method: "POST",
+    headers: allAuthHeaders(), // no Content-Type — browser sets the multipart boundary
+    body: form,
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { uploaded: number };
+}
+
+// ----------------------------------------------------------------------------
+// MCP — connection settings + tool inspector (owner-only)
+// ----------------------------------------------------------------------------
+
+export type McpTool = {
+  name: string;
+  description: string;
+  inputSchema: { properties?: Record<string, unknown>; required?: string[] };
+};
+
+export type McpInfo = {
+  enabled: boolean;
+  transport: string;
+  endpoint_path: string; // "/mcp"
+  tenant: string;
+  shared_token: string | null;
+  tools: McpTool[];
+};
+
+export async function getMcpInfo(): Promise<McpInfo | null> {
+  const r = await fetch("/v1/mcp/info", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as McpInfo;
+}
+
+/** Run one MCP tool against your own corpus — the in-app inspector test. */
+export async function callMcpTool(
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<{ tool: string; result: string; latency_ms: number } | null> {
+  const r = await fetch("/v1/mcp/call", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ tool, arguments: args }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { tool: string; result: string; latency_ms: number };
 }
 
 // ----------------------------------------------------------------------------

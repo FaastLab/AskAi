@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
 from faastlab_askai_api.audit_helper import record_action
@@ -25,11 +26,14 @@ from faastlab_askai_core.db import (
     Source,
     get_sessionmaker,
 )
+from faastlab_askai_core.factory import get_storage
 from faastlab_askai_core.ingestion import (
     default_index_fields,
     default_skillset_skills,
     find_preset,
+    folder_prefix,
     regulator_presets,
+    storage_key_for,
 )
 
 router = APIRouter(tags=["ingestion"], prefix="/ingestion")
@@ -238,6 +242,10 @@ async def list_indexers(
                     "id": str(ix.id),
                     "name": ix.name,
                     "enabled": ix.enabled,
+                    # source_id + kind let the UI offer "upload files" on folder
+                    # sources (and only on folder sources, not web crawls).
+                    "source_id": str(source.id) if source else None,
+                    "kind": source.kind if source else None,
                     "category": source.category if source else None,
                     "license": source.license if source else None,
                     "preset_key": (source.config or {}).get("preset_key") if source else None,
@@ -330,3 +338,120 @@ async def delete_indexer(
         extra={"indexer_id": str(indexer_id)},
     )
     return {"status": "deleted", "id": str(indexer_id)}
+
+
+# ---- custom folder data source (the demo flow) ------------------------------
+
+
+class FolderSourceBody(BaseModel):
+    """Create a folder data source: upload files into it, an indexer on a
+    schedule then auto-indexes them."""
+
+    name: str = Field(min_length=1, max_length=128)
+    # How often the scheduler should auto-index the folder. None/0 = manual
+    # ("Run now") only — no timed runs.
+    schedule_interval_minutes: int | None = Field(default=None, ge=0, le=10080)
+
+
+@router.post("/sources/folder", status_code=201)
+async def create_folder_source(
+    body: FolderSourceBody,
+    principal: Principal = Depends(require_scope("owner")),
+) -> dict:
+    """Create a folder Source + default Skillset/IndexProfile + an Indexer.
+
+    The Source's files live under a per-source object-storage prefix; uploads go
+    there and the indexer reads from there. Returns the ids the UI needs to
+    upload files and run/track the indexer."""
+    source_id = uuid4()
+    # interval 0/None means "manual only"; store a schedule only when timed so
+    # the scheduler's due-check (is_indexer_due) treats it correctly.
+    schedule: dict = {}
+    if body.schedule_interval_minutes:
+        schedule = {"interval_minutes": int(body.schedule_interval_minutes)}
+
+    sm = get_sessionmaker()
+    async with sm() as session:
+        source = Source(
+            id=source_id,
+            tenant_id=principal.tenant_id,
+            name=body.name,
+            kind="folder",  # runner reads the object-storage prefix for this kind
+            category=None,
+            config={"prefix": folder_prefix(source_id)},
+            license="byo",  # bring-your-own: the tenant's own uploaded files
+            is_preset=False,
+            enabled=True,
+        )
+        session.add(source)
+        skillset_id = await _default_skillset_id(session, principal.tenant_id)
+        index_profile_id = await _default_index_profile_id(session, principal.tenant_id)
+        indexer = Indexer(
+            id=uuid4(),
+            tenant_id=principal.tenant_id,
+            name=body.name,
+            source_id=source_id,
+            skillset_id=skillset_id,
+            index_profile_id=index_profile_id,
+            field_mappings={},
+            schedule=schedule,
+            enabled=True,
+        )
+        session.add(indexer)
+        await session.commit()
+        indexer_id = indexer.id
+
+    await record_action(
+        principal=principal,
+        action="ingestion.source.create",
+        resource=f"/v1/ingestion/sources/{source_id}",
+        extra={"source_id": str(source_id), "name": body.name, "kind": "folder"},
+    )
+    return {
+        "source_id": str(source_id),
+        "indexer_id": str(indexer_id),
+        "schedule": schedule,
+    }
+
+
+@router.post("/sources/{source_id}/upload")
+async def upload_to_source(
+    source_id: UUID,
+    files: list[UploadFile] = File(...),
+    principal: Principal = Depends(require_scope("owner")),
+) -> dict:
+    """Upload one or more files into a folder Source's object-storage prefix.
+
+    The files are NOT ingested here — they just land in the folder. The
+    indexer (scheduled or "Run now") is what parses + indexes them, which is
+    exactly the demo story: drop files in a folder, the pipeline picks them up."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        source = await session.get(Source, source_id)
+        # Only the owning tenant's own folder sources accept uploads.
+        if (
+            source is None
+            or source.tenant_id != principal.tenant_id
+            or source.kind != "folder"
+        ):
+            raise HTTPException(status_code=404, detail="folder source not found")
+
+    storage = get_storage()
+    stored: list[str] = []
+    for f in files:
+        data = await f.read()
+        if not data:
+            continue  # skip empties rather than writing 0-byte objects
+        # storage_key_for strips any path from the filename so an upload can't
+        # escape the source's prefix.
+        key = storage_key_for(source_id, f.filename or "file")
+        await storage.put(key, data, content_type=f.content_type)
+        stored.append(f.filename or key)
+
+    await record_action(
+        principal=principal,
+        action="ingestion.source.upload",
+        resource=f"/v1/ingestion/sources/{source_id}/upload",
+        extra={"source_id": str(source_id), "files": stored[:50], "count": len(stored)},
+    )
+    return {"status": "ok", "uploaded": len(stored), "files": stored}

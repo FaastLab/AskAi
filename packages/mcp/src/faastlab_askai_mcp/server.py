@@ -52,6 +52,120 @@ async def _resolve_tenant_id(slug_or_id: str) -> UUID:
     return row
 
 
+# Single source of truth for the tool catalogue. Lives at module level (not
+# inside build_server) so the web "MCP inspector" UI can show the exact same
+# tools an agent would see — see `tool_specs()` + `dispatch_tool()` below.
+def tool_specs(tenant_label: str) -> list[dict[str, Any]]:
+    """The MCP tool catalogue as plain dicts (name / description / inputSchema).
+
+    `tenant_label` is only used in the human-readable descriptions. The stdio
+    server wraps these in `Tool(**spec)`; the REST inspector returns them as-is.
+    """
+    return [
+        {
+            "name": "search_documents",
+            "description": (
+                "Hybrid search (vector + keyword + RRF + reranker) over the "
+                f"AskAi corpus for tenant '{tenant_label}'. Returns ranked chunks "
+                "with scores and source provenance."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "k": {"type": "integer", "default": 8, "minimum": 1, "maximum": 50},
+                    "include_superseded": {"type": "boolean", "default": False},
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "ask",
+            "description": (
+                f"Ask AskAi a question about tenant '{tenant_label}'. Returns a "
+                "cited answer (LLM-synthesised over retrieved chunks)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "include_superseded": {"type": "boolean", "default": False},
+                },
+                "required": ["question"],
+            },
+        },
+        {
+            "name": "get_document",
+            "description": "Fetch a document's title, type, version, summary, and keyphrases.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"document_id": {"type": "string", "description": "UUID"}},
+                "required": ["document_id"],
+            },
+        },
+        {
+            "name": "get_summary",
+            "description": "Return the pre-computed summary + keyphrases for a document.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"document_id": {"type": "string", "description": "UUID"}},
+                "required": ["document_id"],
+            },
+        },
+        {
+            "name": "list_recent",
+            "description": "List the most recently ingested documents in this tenant.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "default": 10, "maximum": 100}},
+            },
+        },
+    ]
+
+
+# Lazily-built singletons so dispatch_tool (used by the REST inspector) doesn't
+# reconstruct services on every call. The stdio server passes its own instances.
+_search_singleton: SearchService | None = None
+_ask_singleton: AskAiService | None = None
+
+
+async def dispatch_tool(
+    name: str,
+    tenant_id: UUID,
+    arguments: dict[str, Any],
+    *,
+    search_service: SearchService | None = None,
+    ask_service: AskAiService | None = None,
+) -> str:
+    """Run one tool for `tenant_id` and return its text result.
+
+    The single execution path shared by the MCP stdio server (`call_tool`) and
+    the REST inspector — so what the UI tests is exactly what an agent calls.
+    """
+    global _search_singleton, _ask_singleton
+    if search_service is None:
+        _search_singleton = _search_singleton or SearchService()
+        search_service = _search_singleton
+    if ask_service is None:
+        _ask_singleton = _ask_singleton or AskAiService()
+        ask_service = _ask_singleton
+
+    if name == "search_documents":
+        result = await _search_tool(search_service, tenant_id, arguments)
+    elif name == "ask":
+        result = await _ask_tool(ask_service, tenant_id, arguments)
+    elif name == "get_document":
+        result = await _doc_tool(tenant_id, arguments)
+    elif name == "get_summary":
+        result = await _summary_tool(tenant_id, arguments)
+    elif name == "list_recent":
+        result = await _list_tool(tenant_id, arguments)
+    else:
+        result = [TextContent(type="text", text=f"unknown tool: {name}")]
+    # Tools return a list of TextContent; join into one string for callers.
+    return "\n".join(c.text for c in result)
+
+
 def build_server() -> Server:
     settings = get_settings()
     server: Server = Server("faastlab-askai")
@@ -62,89 +176,21 @@ def build_server() -> Server:
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="search_documents",
-                description=(
-                    "Hybrid search (vector + keyword + RRF + reranker) over the "
-                    f"AskAi corpus for tenant '{tenant_slug}'. Returns ranked chunks "
-                    "with scores and source provenance."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "k": {"type": "integer", "default": 8, "minimum": 1, "maximum": 50},
-                        "include_superseded": {"type": "boolean", "default": False},
-                    },
-                    "required": ["query"],
-                },
-            ),
-            Tool(
-                name="ask",
-                description=(
-                    f"Ask AskAi a question about tenant '{tenant_slug}'. Returns a "
-                    "cited answer (LLM-synthesised over retrieved chunks)."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "question": {"type": "string"},
-                        "include_superseded": {"type": "boolean", "default": False},
-                    },
-                    "required": ["question"],
-                },
-            ),
-            Tool(
-                name="get_document",
-                description="Fetch a document's title, type, version, summary, and keyphrases.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "document_id": {"type": "string", "description": "UUID"},
-                    },
-                    "required": ["document_id"],
-                },
-            ),
-            Tool(
-                name="get_summary",
-                description="Return the pre-computed summary + keyphrases for a document.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "document_id": {"type": "string", "description": "UUID"},
-                    },
-                    "required": ["document_id"],
-                },
-            ),
-            Tool(
-                name="list_recent",
-                description="List the most recently ingested documents in this tenant.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "default": 10, "maximum": 100},
-                    },
-                },
-            ),
-        ]
+        # Build the protocol Tool objects from the shared catalogue.
+        return [Tool(**spec) for spec in tool_specs(tenant_slug)]
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         tenant_id = await _resolve_tenant_id(tenant_slug)
-
-        if name == "search_documents":
-            return await _search_tool(search_service, tenant_id, arguments)
-        if name == "ask":
-            return await _ask_tool(ask_service, tenant_id, arguments)
-        if name == "get_document":
-            return await _doc_tool(tenant_id, arguments)
-        if name == "get_summary":
-            return await _summary_tool(tenant_id, arguments)
-        if name == "list_recent":
-            return await _list_tool(tenant_id, arguments)
-
-        return [TextContent(type="text", text=f"unknown tool: {name}")]
+        # Reuse the closure's services so the stdio server keeps warm instances.
+        text = await dispatch_tool(
+            name,
+            tenant_id,
+            arguments,
+            search_service=search_service,
+            ask_service=ask_service,
+        )
+        return [TextContent(type="text", text=text)]
 
     return server
 
