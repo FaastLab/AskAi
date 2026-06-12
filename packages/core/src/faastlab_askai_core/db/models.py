@@ -436,3 +436,45 @@ class WatcherEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# ---- Knowledge layer (#7): answer feedback ----------------------------------
+
+
+class AnswerFeedback(Base):
+    """One user reaction to an answer — the signal behind the feedback loop.
+
+    A thumbs up/down (and optional free-text correction) on a `/v1/ask`
+    answer, anchored to that answer's `request_id`. The cited documents are
+    captured so the signal can be attributed to the chunks/documents that
+    produced the answer, which is what lets feedback nudge retrieval ranking
+    (see `faastlab_askai_search.feedback`).
+
+    `normalized_query` is the lowercased/whitespace-collapsed question, stored
+    alongside the raw `query` so query-specific aggregation is an indexed
+    equality lookup rather than a scan + normalise.
+    """
+
+    __tablename__ = "answer_feedback"
+    __table_args__ = (
+        Index("ix_answer_feedback_tenant_created", "tenant_id", "created_at"),
+        Index("ix_answer_feedback_tenant_nquery", "tenant_id", "normalized_query"),
+        Index("ix_answer_feedback_request_id", "request_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    session_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    normalized_query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # +1 = thumbs up, -1 = thumbs down. (No 0 — absence of a row is neutral.)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    correction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The cited documents/chunks shown for the answer being rated.
+    document_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    chunk_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

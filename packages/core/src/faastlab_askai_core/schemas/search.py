@@ -49,3 +49,7 @@ class AskResponse(BaseModel):
     latency_ms: float
     generated_at: datetime
     confidence: float | None = None
+    # Correlation id for this answer — the client echoes it back when the user
+    # rates the answer (#7 feedback loop) and it ties into the usage ledger +
+    # audit trace.
+    request_id: str | None = None

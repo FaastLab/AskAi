@@ -220,6 +220,7 @@ class AskAiService:
             "event": "done",
             "session_id": str(session_uuid),
             "citations": citation_payload,
+            "request_id": request_id,
         }
 
     # ---- Internals -------------------------------------------------------

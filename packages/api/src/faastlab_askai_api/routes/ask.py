@@ -121,6 +121,7 @@ async def ask(
         latency_ms=outcome.total_latency_ms,
         generated_at=outcome.generated_at,
         confidence=outcome.confidence,
+        request_id=request_id,
     )
 
 

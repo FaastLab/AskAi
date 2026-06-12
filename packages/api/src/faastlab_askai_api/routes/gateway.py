@@ -20,7 +20,13 @@ from faastlab_askai_api.audit_helper import record_action
 from faastlab_askai_api.middleware.principal import require_scope
 from faastlab_askai_core.adapters import Principal
 from faastlab_askai_core.config import get_settings
-from faastlab_askai_core.db import AuditLog, LLMUsage, Tenant, get_sessionmaker
+from faastlab_askai_core.db import (
+    AnswerFeedback,
+    AuditLog,
+    LLMUsage,
+    Tenant,
+    get_sessionmaker,
+)
 from faastlab_askai_core.exceptions import PromptNotFoundError
 from faastlab_askai_core.gateway import (
     GatewayContext,
@@ -568,3 +574,79 @@ async def governance_events(
         )
         for r in rows
     ]
+
+
+# ---- #7 Knowledge layer: feedback-loop summary (owner-only) -----------------
+
+
+class CorrectionItem(BaseModel):
+    created_at: datetime
+    query: str
+    rating: int
+    correction: str | None
+
+
+class FeedbackSummary(BaseModel):
+    window_hours: int
+    up: int  # thumbs-up count
+    down: int  # thumbs-down count
+    corrections: int  # rows carrying free-text corrections
+    helpful_rate: float  # up / (up + down), 0..1
+    recent_corrections: list[CorrectionItem]
+
+
+def summarize_feedback(
+    window_hours: int,
+    rows: list[tuple[datetime, str, int, str | None]],
+) -> FeedbackSummary:
+    """Pure aggregation of (created_at, query, rating, correction) rows,
+    newest-first, into up/down tallies + helpful rate + recent corrections."""
+    up = sum(1 for _, _, rating, _ in rows if rating >= 0)
+    down = sum(1 for _, _, rating, _ in rows if rating < 0)
+    corrections = [r for r in rows if r[3]]
+    total = up + down
+    return FeedbackSummary(
+        window_hours=window_hours,
+        up=up,
+        down=down,
+        corrections=len(corrections),
+        helpful_rate=round(up / total, 4) if total else 0.0,
+        recent_corrections=[
+            CorrectionItem(
+                created_at=created_at,
+                query=query,
+                rating=rating,
+                correction=correction,
+            )
+            for created_at, query, rating, correction in corrections[:25]
+        ],
+    )
+
+
+@router.get("/feedback", response_model=FeedbackSummary)
+async def feedback_summary(
+    window_hours: int = Query(default=720, ge=1, le=8760),
+    principal: Principal = Depends(require_scope("owner")),
+) -> FeedbackSummary:
+    """Aggregate answer feedback for the tenant: up/down tallies, helpful rate,
+    and the most recent corrections — the operability surface for the feedback
+    loop (#7) that nudges retrieval ranking."""
+    since = datetime.now(UTC) - timedelta(hours=window_hours)
+    sm = get_sessionmaker()
+    async with sm() as session:
+        result = await session.execute(
+            select(
+                AnswerFeedback.created_at,
+                AnswerFeedback.query,
+                AnswerFeedback.rating,
+                AnswerFeedback.correction,
+            )
+            .where(
+                AnswerFeedback.tenant_id == principal.tenant_id,
+                AnswerFeedback.created_at >= since,
+            )
+            .order_by(desc(AnswerFeedback.id))
+            .limit(2000)
+        )
+        rows = [tuple(r) for r in result.all()]
+    return summarize_feedback(window_hours, rows)
