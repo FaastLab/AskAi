@@ -572,6 +572,95 @@ export async function getFeedbackSummary(
 }
 
 // ----------------------------------------------------------------------------
+// #8 Ingestion pipeline — regulator presets + indexers + runs (owner-only)
+// ----------------------------------------------------------------------------
+
+export type IngestPreset = {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  license: string;
+  kind: string;
+  start_url_count: number;
+  enabled: boolean;
+};
+
+export type IngestRun = {
+  run_id: number;
+  status: "ok" | "error" | "running";
+  pages: number;
+  ingested: number;
+  skipped: number;
+  failed: number;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+};
+
+export type IngestIndexer = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  category: string | null;
+  license: string | null;
+  preset_key: string | null;
+  schedule: Record<string, unknown>;
+  last_run_at: string | null;
+  last_run: IngestRun | null;
+};
+
+export async function listPresets(): Promise<IngestPreset[]> {
+  const r = await fetch("/v1/ingestion/presets", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as IngestPreset[];
+}
+
+export async function enablePreset(key: string): Promise<{ id: string } | null> {
+  const r = await fetch(`/v1/ingestion/presets/${encodeURIComponent(key)}/enable`, {
+    method: "POST",
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as { id: string };
+}
+
+export async function listIndexers(): Promise<IngestIndexer[]> {
+  const r = await fetch("/v1/ingestion/indexers", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as IngestIndexer[];
+}
+
+export async function runIndexer(id: string): Promise<{ status: string } | null> {
+  const r = await fetch(`/v1/ingestion/indexers/${id}/run`, {
+    method: "POST",
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) {
+    const raw = await r.text();
+    let detail = raw;
+    try { detail = JSON.parse(raw)?.detail ?? raw; } catch { /* keep raw */ }
+    throw new Error(detail || `Run failed (HTTP ${r.status})`);
+  }
+  return (await r.json()) as { status: string };
+}
+
+export async function getIndexerRuns(id: string): Promise<IngestRun[]> {
+  const r = await fetch(`/v1/ingestion/indexers/${id}/runs`, { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as IngestRun[];
+}
+
+export async function deleteIndexer(id: string): Promise<boolean> {
+  const r = await fetch(`/v1/ingestion/indexers/${id}`, {
+    method: "DELETE",
+    headers: allAuthHeaders(),
+  });
+  return r.ok;
+}
+
+// ----------------------------------------------------------------------------
 // Admin (owner-only): users, invites
 // ----------------------------------------------------------------------------
 

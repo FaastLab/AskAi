@@ -55,6 +55,97 @@ def run_due_connectors() -> dict[str, Any]:
     return asyncio.run(_run_due_connectors())
 
 
+@celery_app.task(name="askai.indexing.run_indexer")
+def run_indexer(indexer_id: str) -> dict[str, Any]:
+    """Run one Indexer (Source → crawler → pipeline) and record an IndexerRun.
+
+    This is the Azure-shaped pipeline's runner: it resolves the Indexer's
+    Source config into a crawl, ingests the fetched pages through the normal
+    pipeline, and writes a queryable run row. Reuses the existing WebConnector +
+    IngestionPipeline — the Indexer is just the declarative binding."""
+    return asyncio.run(_run_indexer(UUID(indexer_id)))
+
+
+async def _run_indexer(indexer_id: UUID) -> dict[str, Any]:
+    from faastlab_askai_core.db import Indexer, IndexerRun, Source, get_sessionmaker
+
+    sm = get_sessionmaker()
+    # Resolve the indexer + its source, and open a 'running' run row.
+    async with sm() as session:
+        indexer = await session.get(Indexer, indexer_id)
+        if indexer is None:
+            return {"status": "error", "error": "indexer not found"}
+        source = await session.get(Source, indexer.source_id)
+        if source is None:
+            return {"status": "error", "error": "source not found"}
+        tenant_id = indexer.tenant_id
+        cfg_raw = dict(source.config or {})
+        doc_type = source.category
+        run = IndexerRun(
+            indexer_id=indexer_id,
+            tenant_id=tenant_id,
+            started_at=datetime.now(UTC),
+            status="running",
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    cfg = WebCrawlConfig(
+        start_urls=list(cfg_raw.get("start_urls") or []),
+        mode=str(cfg_raw.get("mode") or "crawl"),
+        url_prefix=cfg_raw.get("url_prefix"),
+        include=list(cfg_raw.get("include") or []),
+        exclude=list(cfg_raw.get("exclude") or []),
+        max_pages=int(cfg_raw.get("max_pages") or 50),
+        max_depth=int(cfg_raw.get("max_depth") or 2),
+        doc_type=doc_type,
+    )
+
+    pages = ingested = skipped = failed = 0
+    error: str | None = None
+    try:
+        pipeline = IngestionPipeline(tenant_id)
+        async for r in pipeline.ingest(WebConnector(cfg)):
+            pages += 1
+            if r.skipped and r.note.startswith("error:"):
+                failed += 1
+            elif r.skipped:
+                skipped += 1
+            else:
+                ingested += 1
+    except Exception as exc:
+        log.exception("indexer %s crawl failed", indexer_id)
+        error = str(exc)
+
+    finished = datetime.now(UTC)
+    async with sm() as session:
+        run = await session.get(IndexerRun, run_id)
+        if run is not None:
+            run.finished_at = finished
+            run.status = "error" if error else "ok"
+            run.pages = pages
+            run.ingested = ingested
+            run.skipped = skipped
+            run.failed = failed
+            run.error = error
+            run.duration_ms = round((finished - run.started_at).total_seconds() * 1000.0, 1)
+        indexer = await session.get(Indexer, indexer_id)
+        if indexer is not None:
+            indexer.last_run_at = finished
+        await session.commit()
+
+    return {
+        "status": "error" if error else "ok",
+        "indexer_id": str(indexer_id),
+        "pages": pages,
+        "ingested": ingested,
+        "skipped": skipped,
+        "failed": failed,
+        "error": error,
+    }
+
+
 # ---- web connector: crawl + ingest + record run ----------------------------
 
 
