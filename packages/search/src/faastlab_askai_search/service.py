@@ -15,7 +15,9 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID
 
+from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.factory import get_reranker
+from faastlab_askai_core.gateway import GatewayContext, record_usage, usage_from_text
 from faastlab_askai_core.tenancy import visible_tenant_ids
 from faastlab_askai_search.feedback import FeedbackStore, apply_feedback_nudge
 from faastlab_askai_search.filters import SearchFilters
@@ -75,6 +77,7 @@ class SearchService:
         include_public_corpus: bool = True,
         rerank: bool = True,
         feedback: bool = True,
+        meter: bool = True,
     ) -> SearchOutcome:
         """Filter → retrieve → (rerank?) → (feedback nudge?) → score.
 
@@ -113,11 +116,33 @@ class SearchService:
         if feedback:
             hits = await self._apply_feedback(tenant_ids, query, hits)
         elapsed_ms = (perf_counter() - started) * 1000.0
+        # Meter the search in the gateway ledger so EVERY caller — HTTP route,
+        # MCP, CLI — shows up under purpose="search" (chat retrieval passes
+        # meter=False so it doesn't double-log a search row per question).
+        if meter:
+            await self._record_search_usage(tenant_id, query, elapsed_ms)
         return SearchOutcome(
             query=query,
             hits=hits,
             confidence=self._confidence_fn(hits),
             latency_ms=round(elapsed_ms, 2),
+        )
+
+    async def _record_search_usage(
+        self, tenant_id: UUID, query: str, elapsed_ms: float
+    ) -> None:
+        """Ledger one search (query-embedding spend). Best-effort — record_usage
+        already swallows failures, so this never breaks a search."""
+        settings = get_settings()
+        await record_usage(
+            GatewayContext(tenant_id=tenant_id, purpose="search"),
+            usage_from_text(
+                prompt=query,
+                completion="",
+                provider=settings.embeddings_provider,
+                model=settings.embeddings_model,
+                latency_ms=round(elapsed_ms, 2),
+            ),
         )
 
     async def _apply_feedback(

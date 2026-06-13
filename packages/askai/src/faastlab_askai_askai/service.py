@@ -238,4 +238,7 @@ class AskAiService:
             k=self._retrieve_k,
             filters=filters,
             rerank=rerank,
+            # Chat logs its own generation row via the gateway; don't also
+            # emit a separate "search" usage row for the retrieval step.
+            meter=False,
         )
