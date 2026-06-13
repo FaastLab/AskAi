@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { isAuthenticated } from "./lib/auth";
 import { AcceptInvitePage } from "./pages/AcceptInvite";
 import { AdminPage } from "./pages/Admin";
+import { AgentPage } from "./pages/Agent";
 import { AuditPage } from "./pages/Audit";
 import { ChatPage } from "./pages/Chat";
 import { ConnectorsPage } from "./pages/Connectors";
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/chat" replace />} />
         <Route path="/chat" element={<RequireAuth><ChatPage /></RequireAuth>} />
         <Route path="/chat/:sessionId" element={<RequireAuth><ChatPage /></RequireAuth>} />
+        <Route path="/agent" element={<RequireAuth><AgentPage /></RequireAuth>} />
         <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/documents/:documentId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/files" element={<RequireAuth><FilesPage /></RequireAuth>} />
