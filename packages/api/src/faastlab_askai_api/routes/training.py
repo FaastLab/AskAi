@@ -63,7 +63,7 @@ _ARTEFACT_KINDS = {
 class GenerateRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=2000)
     kind: str = Field(default="blended")
-    num_questions: int = Field(default=5, ge=1, le=20)
+    num_questions: int = Field(default=5, ge=1, le=50)
     style: str = "mixed"
     difficulty: str = "mixed"
     example_questions: str | None = Field(default=None, max_length=8000)
