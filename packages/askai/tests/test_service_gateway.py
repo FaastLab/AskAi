@@ -31,7 +31,7 @@ class _FakeSearch:
     def __init__(self, hits):
         self._hits = hits
 
-    async def search(self, *, tenant_id, query, k, filters=None, rerank=True):
+    async def search(self, *, tenant_id, query, k, filters=None, rerank=True, meter=True):
         return SimpleNamespace(hits=self._hits, confidence=0.5, latency_ms=1.0, query=query)
 
 
