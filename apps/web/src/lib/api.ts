@@ -339,6 +339,30 @@ export type TrainingRecord = {
   completed_at: string;
 };
 
+/** Turn a FastAPI error body into a readable string.
+ *
+ * `detail` can be a plain string (our HTTPExceptions) OR — for 422 validation
+ * errors — an array of `{loc, msg, ...}` objects. Rendering that array directly
+ * gives "[object Object]", so flatten it to "field: message" lines. */
+function errorMessage(raw: string, status: number): string {
+  try {
+    const detail = JSON.parse(raw)?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((d: { loc?: unknown[]; msg?: string }) => {
+          const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : "";
+          return field ? `${field}: ${d.msg}` : d.msg;
+        })
+        .join("; ");
+    }
+    if (detail) return JSON.stringify(detail);
+  } catch {
+    /* fall through to raw */
+  }
+  return raw || `Request failed (HTTP ${status})`;
+}
+
 async function trainingPost<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(path, {
     method: "POST",
@@ -347,13 +371,7 @@ async function trainingPost<T>(path: string, body: unknown): Promise<T> {
   });
   const raw = await r.text();
   if (!r.ok) {
-    let detail = raw;
-    try {
-      detail = JSON.parse(raw)?.detail ?? raw;
-    } catch {
-      /* keep raw */
-    }
-    throw new Error(detail || `Request failed (HTTP ${r.status})`);
+    throw new Error(errorMessage(raw, r.status));
   }
   return JSON.parse(raw) as T;
 }

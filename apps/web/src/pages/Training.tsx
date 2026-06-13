@@ -201,7 +201,7 @@ function GenerateView() {
               <input
                 type="number"
                 min={1}
-                max={20}
+                max={50}
                 value={numQuestions}
                 onChange={(e) => setNumQuestions(Number(e.target.value))}
                 className="w-16 rounded border border-slate-300 px-2 py-1"
