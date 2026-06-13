@@ -268,6 +268,154 @@ export async function runAgent(goal: string): Promise<AgentResponse> {
 }
 
 // ----------------------------------------------------------------------------
+// Compliance training (#7) — grounded generation, assignment, grading, records
+// ----------------------------------------------------------------------------
+
+export type TrainingKind =
+  | "blended"
+  | "lesson"
+  | "revision_guide"
+  | "quiz"
+  | "exam"
+  | "flashcards"
+  | "slides"
+  | "scenario";
+
+export type TrainingGenerateRequest = {
+  topic: string;
+  kind: TrainingKind;
+  num_questions?: number;
+  style?: string;
+  difficulty?: string;
+  example_questions?: string | null;
+  objectives?: string[] | null;
+  role?: string | null;
+  include_scenario?: boolean;
+};
+
+// The generated payload is shape-varied by kind, so we keep it loose and let
+// the page render the bits it knows about.
+export type TrainingGenerateResponse = {
+  kind: TrainingKind;
+  result: Record<string, unknown>;
+};
+
+export type TrainingModule = {
+  id: string;
+  title: string;
+  topic: string;
+  kind: string;
+  content: Record<string, unknown>;
+  rubric: Record<string, unknown>;
+  grounding: Record<string, unknown>;
+  source_document_ids: string[];
+  pass_mark_pct: number;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type TrainingAssignment = {
+  id: string;
+  module_id: string;
+  user_id: string;
+  assigned_by: string | null;
+  status: string;
+  due_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export type TrainingRecord = {
+  id: string;
+  module_id: string;
+  assignment_id: string | null;
+  user_id: string;
+  topic: string;
+  score: number | null;
+  max_score: number | null;
+  score_pct: number | null;
+  passed: boolean | null;
+  grade_detail: Record<string, unknown>;
+  completed_at: string;
+};
+
+async function trainingPost<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try {
+      detail = JSON.parse(raw)?.detail ?? raw;
+    } catch {
+      /* keep raw */
+    }
+    throw new Error(detail || `Request failed (HTTP ${r.status})`);
+  }
+  return JSON.parse(raw) as T;
+}
+
+export function generateTraining(
+  body: TrainingGenerateRequest,
+): Promise<TrainingGenerateResponse> {
+  return trainingPost<TrainingGenerateResponse>("/v1/training/generate", body);
+}
+
+export function saveTrainingModule(body: {
+  title: string;
+  topic: string;
+  kind: string;
+  content: Record<string, unknown>;
+  rubric?: Record<string, unknown>;
+  grounding?: Record<string, unknown>;
+  source_document_ids?: string[];
+  pass_mark_pct?: number;
+}): Promise<TrainingModule> {
+  return trainingPost<TrainingModule>("/v1/training/modules", body);
+}
+
+export async function listTrainingModules(): Promise<TrainingModule[]> {
+  const r = await fetch("/v1/training/modules", { headers: allAuthHeaders() });
+  if (!r.ok) return [];
+  return (await r.json()) as TrainingModule[];
+}
+
+export function assignTraining(body: {
+  module_id: string;
+  user_ids: string[];
+  due_at?: string | null;
+}): Promise<TrainingAssignment[]> {
+  return trainingPost<TrainingAssignment[]>("/v1/training/assignments", body);
+}
+
+export function submitTraining(body: {
+  module_id: string;
+  assignment_id?: string | null;
+  answers?: number[] | null;
+  content?: string | null;
+}): Promise<TrainingRecord> {
+  return trainingPost<TrainingRecord>("/v1/training/submit", body);
+}
+
+export async function listTrainingRecords(opts?: {
+  user_id?: string;
+  module_id?: string;
+}): Promise<TrainingRecord[]> {
+  const qs = new URLSearchParams();
+  if (opts?.user_id) qs.set("user_id", opts.user_id);
+  if (opts?.module_id) qs.set("module_id", opts.module_id);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const r = await fetch(`/v1/training/records${suffix}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return [];
+  return (await r.json()) as TrainingRecord[];
+}
+
+// ----------------------------------------------------------------------------
 // AI Gateway observability (owner-only): usage + per-request feed
 // ----------------------------------------------------------------------------
 

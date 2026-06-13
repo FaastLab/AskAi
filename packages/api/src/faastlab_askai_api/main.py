@@ -54,6 +54,7 @@ from faastlab_askai_api.routes import (
     search,
     sessions,
     tenants,
+    training,
 )
 from faastlab_askai_api.routes import (
     agent as agent_route,
@@ -159,6 +160,7 @@ def create_app() -> FastAPI:
     app.include_router(connectors.router, prefix="/v1")
     app.include_router(ingestion.router, prefix="/v1")
     app.include_router(mcp.router, prefix="/v1")
+    app.include_router(training.router, prefix="/v1")
     app.include_router(validators_route.router, prefix="/v1")
 
     # ---- MCP HTTP transport (mounted only if configured) ----
