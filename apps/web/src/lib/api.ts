@@ -233,6 +233,41 @@ export function auditCsvUrl(days = 30): string {
 }
 
 // ----------------------------------------------------------------------------
+// Agent (#4) — multi-step tool-calling over the sovereign tools
+// ----------------------------------------------------------------------------
+
+export type AgentStep = {
+  tool: string;
+  arguments: Record<string, unknown>;
+  result_preview: string;
+};
+
+export type AgentResponse = {
+  answer: string;
+  iterations: number;
+  steps: AgentStep[];
+};
+
+export async function runAgent(goal: string): Promise<AgentResponse> {
+  const r = await fetch("/v1/agent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ goal }),
+  });
+  const raw = await r.text();
+  if (!r.ok) {
+    let detail = raw;
+    try {
+      detail = JSON.parse(raw)?.detail ?? raw;
+    } catch {
+      /* keep raw */
+    }
+    throw new Error(detail || `Agent failed (HTTP ${r.status})`);
+  }
+  return JSON.parse(raw) as AgentResponse;
+}
+
+// ----------------------------------------------------------------------------
 // AI Gateway observability (owner-only): usage + per-request feed
 // ----------------------------------------------------------------------------
 

@@ -56,6 +56,9 @@ from faastlab_askai_api.routes import (
     tenants,
 )
 from faastlab_askai_api.routes import (
+    agent as agent_route,
+)
+from faastlab_askai_api.routes import (
     config as config_route,
 )
 from faastlab_askai_api.routes import (
@@ -149,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router, prefix="/v1")
     app.include_router(search.router, prefix="/v1")
     app.include_router(ask.router, prefix="/v1")
+    app.include_router(agent_route.router, prefix="/v1")
     app.include_router(feedback.router, prefix="/v1")
     app.include_router(sessions.router, prefix="/v1")
     app.include_router(gateway_route.router, prefix="/v1")

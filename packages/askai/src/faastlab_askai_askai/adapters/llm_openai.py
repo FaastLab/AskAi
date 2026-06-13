@@ -7,6 +7,7 @@ the SDK's `stream=True` async iterator and yields content deltas.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from tenacity import (
@@ -124,6 +125,40 @@ class OpenAIChatLLM:
             choice = chunk.choices[0] if chunk.choices else None
             if choice and choice.delta and choice.delta.content:
                 yield choice.delta.content
+
+    # ---- Tool-calling (agent loop) ----------------------------------------
+
+    async def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ) -> Any:
+        """Low-level tool-calling chat. Takes raw OpenAI message dicts (so the
+        agent can carry assistant `tool_calls` + `tool` results across turns)
+        and returns the assistant message object (`.content`, `.tool_calls`).
+
+        Sovereign note: vLLM must be started with tool-calling enabled
+        (`--enable-auto-tool-choice --tool-call-parser hermes` for Qwen2.5),
+        otherwise the model returns text and never emits tool_calls.
+        """
+        kwargs: dict[str, Any] = {
+            "model": model or self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        try:
+            response = await self._active_client().chat.completions.create(**kwargs)
+        except Exception as exc:
+            self._reraise(exc)
+        return response.choices[0].message
 
     # ---- Internal --------------------------------------------------------
 
