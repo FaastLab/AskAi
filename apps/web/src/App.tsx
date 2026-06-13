@@ -15,6 +15,7 @@ import { McpPage } from "./pages/Mcp";
 import { PromptsPage } from "./pages/Prompts";
 import { SecurityPage } from "./pages/Security";
 import { SignupPage } from "./pages/Signup";
+import { TrainingPage } from "./pages/Training";
 import { UsagePage } from "./pages/Usage";
 import { ValidatorPage } from "./pages/Validator";
 
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/chat" element={<RequireAuth><ChatPage /></RequireAuth>} />
         <Route path="/chat/:sessionId" element={<RequireAuth><ChatPage /></RequireAuth>} />
         <Route path="/agent" element={<RequireAuth><AgentPage /></RequireAuth>} />
+        <Route path="/training" element={<RequireAuth><TrainingPage /></RequireAuth>} />
         <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/documents/:documentId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/files" element={<RequireAuth><FilesPage /></RequireAuth>} />

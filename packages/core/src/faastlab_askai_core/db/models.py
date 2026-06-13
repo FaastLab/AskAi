@@ -659,3 +659,145 @@ class IndexerRun(Base):
     )
 
     indexer: Mapped[Indexer] = relationship(back_populates="runs")
+
+
+# ---- Compliance training (#7) -----------------------------------------------
+#
+# The mandatory-control story: a firm must be able to PROVE its staff were
+# trained on the *current* rules and tested on them (e.g. the FCA Training &
+# Competence regime). These three tables capture that as an audit trail:
+#
+#   TrainingModule    — the delivered, corpus-grounded training (lesson + quiz /
+#                       scenario), tied to the source documents (rules) it teaches.
+#   TrainingAssignment— who must complete which module, by when.
+#   TrainingRecord    — the regulator-facing proof: who completed what, their
+#                       score, pass/fail, and when. Append-only by intent.
+#
+# Generated content + grounding + grading detail all live in JSONB so the schema
+# never has to migrate as the generators evolve.
+
+
+class TrainingModule(Base):
+    """A delivered, corpus-grounded training module under a tenant.
+
+    ``content`` holds the generated artefacts (lesson body, quiz/exam questions,
+    scenario object) as produced by ``TrainingGenerator``. ``rubric`` holds the
+    grading criteria used to score free-text submissions. ``source_document_ids``
+    records WHICH ingested rules this module trains on — the link that lets a
+    rule change trigger a retraining requirement (fast-follow).
+    """
+
+    __tablename__ = "training_modules"
+    __table_args__ = (
+        Index("ix_training_modules_tenant_created", "tenant_id", "created_at"),
+        Index("ix_training_modules_tenant_topic", "tenant_id", "topic"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    # lesson | blended | scenario | exam | quiz — what the module primarily is.
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="blended")
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    rubric: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    grounding: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    source_document_ids: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, nullable=False
+    )
+    pass_mark_pct: Mapped[float] = mapped_column(Float, nullable=False, default=70.0)
+    created_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    assignments: Mapped[list["TrainingAssignment"]] = relationship(
+        back_populates="module", cascade="all, delete-orphan"
+    )
+
+
+class TrainingAssignment(Base):
+    """Assigns a training module to a staff member, optionally with a due date."""
+
+    __tablename__ = "training_assignments"
+    __table_args__ = (
+        Index("ix_training_assignments_tenant_user", "tenant_id", "user_id"),
+        Index("ix_training_assignments_module", "module_id"),
+        Index("ix_training_assignments_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    module_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("training_modules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # The staff member who must complete it (string user id, matching the rest
+    # of the app's principal.user_id convention).
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    assigned_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # assigned | in_progress | completed
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="assigned")
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    module: Mapped[TrainingModule] = relationship(back_populates="assignments")
+
+
+class TrainingRecord(Base):
+    """Audit-grade proof that a staff member completed and passed training.
+
+    This is the artefact a regulator asks for: who was trained on which rules,
+    their score, whether they passed, and when. ``grade_detail`` keeps the
+    per-criterion breakdown so a result is fully explainable. Rows are written
+    once on completion and not edited — re-takes create new rows.
+    """
+
+    __tablename__ = "training_records"
+    __table_args__ = (
+        Index("ix_training_records_tenant_user", "tenant_id", "user_id"),
+        Index("ix_training_records_module", "module_id"),
+        Index("ix_training_records_completed", "tenant_id", "completed_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    module_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("training_modules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    assignment_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("training_assignments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    passed: Mapped[bool | None] = mapped_column(nullable=True)
+    grade_detail: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    submission: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
