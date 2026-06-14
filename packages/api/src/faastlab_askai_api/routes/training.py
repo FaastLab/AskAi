@@ -326,9 +326,15 @@ async def assign_module(
 async def list_assignments(
     principal: Principal = Depends(get_principal),
     user_id: str | None = None,
+    module_id: UUID | None = None,
     mine: bool = False,
 ) -> list[TrainingAssignment]:
-    """List assignments for the tenant; ``mine=true`` or ``user_id=`` to filter."""
+    """List assignments for the tenant.
+
+    ``mine=true`` restricts to the caller (a learner's own assignments);
+    ``user_id=`` filters to one staff member; ``module_id=`` filters to one
+    module (so the admin screen can show who a module is assigned to).
+    """
     target = principal.user_id if mine else user_id
     async with get_sessionmaker()() as session:
         stmt = select(TrainingAssignment).where(
@@ -336,6 +342,8 @@ async def list_assignments(
         )
         if target is not None:
             stmt = stmt.where(TrainingAssignment.user_id == target)
+        if module_id is not None:
+            stmt = stmt.where(TrainingAssignment.module_id == module_id)
         rows = await session.execute(stmt.order_by(TrainingAssignment.created_at.desc()))
         return list(rows.scalars().all())
 
