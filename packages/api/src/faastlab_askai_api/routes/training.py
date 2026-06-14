@@ -296,19 +296,37 @@ async def assign_module(
 ) -> list[TrainingAssignment]:
     """Assign a module to one or more staff members."""
     await _load_module(body.module_id, principal.tenant_id)  # ownership check
-    assignments = [
-        TrainingAssignment(
-            id=uuid4(),
-            tenant_id=principal.tenant_id,
-            module_id=body.module_id,
-            user_id=uid,
-            assigned_by=principal.user_id,
-            status="assigned",
-            due_at=body.due_at,
-        )
-        for uid in dict.fromkeys(body.user_ids)  # de-dup, preserve order
-    ]
+    requested = list(dict.fromkeys(body.user_ids))  # de-dup, preserve order
     async with get_sessionmaker()() as session:
+        # A module can be assigned to a user AT MOST ONCE (enforced by the
+        # uq_training_assignment_module_user constraint). Skip users who already
+        # have this module so re-assigning is a harmless no-op, not a duplicate
+        # row or a 409. To re-test a user who failed, generate a NEW module.
+        already = set(
+            (
+                await session.execute(
+                    select(TrainingAssignment.user_id).where(
+                        TrainingAssignment.module_id == body.module_id,
+                        TrainingAssignment.user_id.in_(requested),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assignments = [
+            TrainingAssignment(
+                id=uuid4(),
+                tenant_id=principal.tenant_id,
+                module_id=body.module_id,
+                user_id=uid,
+                assigned_by=principal.user_id,
+                status="assigned",
+                due_at=body.due_at,
+            )
+            for uid in requested
+            if uid not in already
+        ]
         session.add_all(assignments)
         await session.commit()
         for a in assignments:
@@ -317,7 +335,11 @@ async def assign_module(
         principal=principal,
         action="training.assign",
         resource=f"/v1/training/modules/{body.module_id}",
-        extra={"module_id": str(body.module_id), "count": len(assignments)},
+        extra={
+            "module_id": str(body.module_id),
+            "created": len(assignments),
+            "skipped_already_assigned": len(already),
+        },
     )
     return assignments
 

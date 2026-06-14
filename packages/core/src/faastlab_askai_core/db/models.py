@@ -729,6 +729,12 @@ class TrainingAssignment(Base):
         Index("ix_training_assignments_tenant_user", "tenant_id", "user_id"),
         Index("ix_training_assignments_module", "module_id"),
         Index("ix_training_assignments_status", "tenant_id", "status"),
+        # A module (course) can be assigned to a given user AT MOST ONCE. A
+        # re-take after a failure is a NEW module on the same subject, not a
+        # re-assignment of the same one — so identity is (module_id, user_id).
+        UniqueConstraint(
+            "module_id", "user_id", name="uq_training_assignment_module_user"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
