@@ -896,10 +896,20 @@ function AssignPanel({ module }: { module: TrainingModule }) {
             return (
               <label
                 key={u.id}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-50"
+                title={
+                  existing
+                    ? "Already assigned this module — to re-test, generate a new module on the same subject"
+                    : undefined
+                }
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
+                  existing ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"
+                }`}
               >
                 <input
                   type="checkbox"
+                  // A module can only be assigned to a user once, so lock out
+                  // anyone who already has it.
+                  disabled={!!existing}
                   checked={picked.has(u.id)}
                   onChange={() => toggle(u.id)}
                 />
