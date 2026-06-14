@@ -9,6 +9,7 @@ import {
   listTrainingModules,
   listTrainingRecords,
   saveTrainingModule,
+  submitTraining,
   type TenantUser,
   type TrainingAssignment,
   type TrainingGenerateResponse,
@@ -60,7 +61,9 @@ const DEFAULT_RUBRIC = {
 };
 
 export function TrainingPage() {
-  const [tab, setTab] = useState<"generate" | "modules" | "records">("generate");
+  const [tab, setTab] = useState<"learn" | "generate" | "modules" | "records">(
+    "learn",
+  );
   return (
     <div className="flex h-dvh">
       <Sidebar />
@@ -75,6 +78,12 @@ export function TrainingPage() {
             </p>
           </div>
           <div className="flex gap-1 text-sm">
+            <button
+              onClick={() => setTab("learn")}
+              className={`rounded px-3 py-1 ${tab === "learn" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-slate-100"}`}
+            >
+              My training
+            </button>
             <button
               onClick={() => setTab("generate")}
               className={`rounded px-3 py-1 ${tab === "generate" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-slate-100"}`}
@@ -97,6 +106,7 @@ export function TrainingPage() {
         </header>
         <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
           <div className="max-w-3xl mx-auto">
+            {tab === "learn" && <LearnView />}
             {tab === "generate" && <GenerateView />}
             {tab === "modules" && <ModulesView />}
             {tab === "records" && <RecordsView />}
@@ -485,6 +495,262 @@ function QuestionList({ questions }: { questions: Record<string, unknown>[] }) {
       ))}
     </ol>
   );
+}
+
+/** Learner view: the modules assigned TO ME — open, learn, take the test. */
+function LearnView() {
+  const [assignments, setAssignments] = useState<TrainingAssignment[] | null>(null);
+  const [modules, setModules] = useState<Map<string, TrainingModule>>(new Map());
+  const [taking, setTaking] = useState<{ a: TrainingAssignment; m: TrainingModule } | null>(
+    null,
+  );
+
+  function reload() {
+    Promise.all([listTrainingAssignments({ mine: true }), listTrainingModules()]).then(
+      ([as, ms]) => {
+        setAssignments(as);
+        setModules(new Map(ms.map((m) => [m.id, m])));
+      },
+    );
+  }
+
+  useEffect(reload, []);
+
+  if (taking) {
+    return (
+      <TakeModule
+        assignment={taking.a}
+        module={taking.m}
+        onDone={() => {
+          setTaking(null);
+          reload();
+        }}
+      />
+    );
+  }
+
+  if (assignments === null) {
+    return <div className="text-sm text-ink-500">Loading your training…</div>;
+  }
+  if (assignments.length === 0) {
+    return (
+      <div className="text-sm text-ink-500">
+        You have no training assigned. When a manager assigns a module to you, it
+        will appear here to complete.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {assignments.map((a) => {
+        const m = modules.get(a.module_id);
+        const done = a.status === "completed";
+        const overdue = a.due_at && !done && new Date(a.due_at) < new Date();
+        return (
+          <div
+            key={a.id}
+            className="rounded-lg border border-slate-200 bg-white p-4 flex items-center justify-between"
+          >
+            <div>
+              <div className="font-medium text-ink-900">
+                {m ? m.title : "(module unavailable)"}
+              </div>
+              <div className="text-xs text-ink-500">
+                {m?.kind}
+                {a.due_at && (
+                  <span className={overdue ? "text-rose-600" : ""}>
+                    {" "}
+                    · due {new Date(a.due_at).toLocaleDateString()}
+                    {overdue ? " (overdue)" : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+            {done ? (
+              <span className="rounded bg-emerald-100 text-emerald-900 px-2 py-1 text-xs">
+                Completed
+              </span>
+            ) : (
+              <button
+                onClick={() => m && setTaking({ a, m })}
+                disabled={!m}
+                className="rounded bg-ink-900 text-white text-sm px-4 py-1.5 hover:bg-ink-700 disabled:opacity-50"
+              >
+                Start
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Take one assigned module: read the material, then answer + submit. */
+function TakeModule({
+  assignment,
+  module,
+  onDone,
+}: {
+  assignment: TrainingAssignment;
+  module: TrainingModule;
+  onDone: () => void;
+}) {
+  const questions = mcqQuestions(module.content);
+  const isMcq = questions.length > 0;
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TrainingRecord | null>(null);
+
+  async function submit() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const record = await submitTraining({
+        module_id: module.id,
+        assignment_id: assignment.id,
+        // MCQ path sends an index per question (in order); free-text sends prose.
+        answers: isMcq ? questions.map((_, i) => answers[i] ?? -1) : null,
+        content: isMcq ? null : text,
+      });
+      setResult(record);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // After submission: show the graded outcome and a way back.
+  if (result) {
+    const passed = result.passed;
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-6 text-center space-y-3">
+        <div
+          className={`text-3xl font-bold ${passed ? "text-emerald-700" : "text-rose-700"}`}
+        >
+          {result.score_pct != null ? `${result.score_pct}%` : "Submitted"}
+        </div>
+        <div className="text-sm">
+          {passed == null ? (
+            <span className="text-ink-600">Your answer was recorded.</span>
+          ) : passed ? (
+            <span className="text-emerald-700 font-medium">Passed ✓</span>
+          ) : (
+            <span className="text-rose-700 font-medium">
+              Not passed — pass mark is {module.pass_mark_pct}%
+            </span>
+          )}
+        </div>
+        {(result.grade_detail as { feedback?: string })?.feedback && (
+          <p className="text-sm text-ink-600">
+            {(result.grade_detail as { feedback?: string }).feedback}
+          </p>
+        )}
+        <button
+          onClick={onDone}
+          className="rounded bg-ink-900 text-white text-sm px-4 py-1.5 hover:bg-ink-700"
+        >
+          Back to my training
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-ink-900">{module.title}</h2>
+        <button onClick={onDone} className="text-sm text-ink-500 hover:text-ink-900">
+          ← Back
+        </button>
+      </div>
+
+      {/* Learn: show the module content to read before testing. */}
+      <ResultBody payload={module.content} />
+
+      {/* Test */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="text-xs uppercase tracking-wide text-ink-500 mb-3">
+          {isMcq ? "Answer the questions" : "Your answer"}
+        </div>
+
+        {isMcq ? (
+          <ol className="space-y-4 text-sm">
+            {questions.map((q, i) => (
+              <li key={i}>
+                <div className="font-medium text-ink-900">
+                  {i + 1}. {q.question as string}
+                </div>
+                <div className="mt-1 space-y-1">
+                  {((q.options as string[]) || []).map((opt, j) => (
+                    <label key={j} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`q${i}`}
+                        checked={answers[i] === j}
+                        onChange={() => setAnswers((p) => ({ ...p, [i]: j }))}
+                      />
+                      <span>{opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={8}
+            placeholder="Write your answer here — it will be graded against the rubric."
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm resize-y"
+          />
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={submit}
+            disabled={
+              busy ||
+              (isMcq ? Object.keys(answers).length < questions.length : !text.trim())
+            }
+            className="rounded bg-ink-900 text-white text-sm px-4 py-1.5 hover:bg-ink-700 disabled:opacity-50"
+          >
+            {busy ? "Submitting…" : "Submit"}
+          </button>
+          {error && <span className="text-sm text-rose-700">{error}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Extract MCQ questions from a module's content, mirroring the backend's
+ * _mcq_questions: blended -> content.quiz.data.questions; single quiz/exam
+ * artefact -> content.data.questions; raw -> content.questions. Only questions
+ * that actually carry options + an answer_index are auto-gradable. */
+function mcqQuestions(content: Record<string, unknown>): Record<string, unknown>[] {
+  const fromList = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v)
+      ? (v as Record<string, unknown>[]).filter(
+          (q) => Array.isArray(q.options) && typeof q.answer_index === "number",
+        )
+      : [];
+  const quiz = content.quiz as Record<string, unknown> | undefined;
+  if (quiz) {
+    const data = quiz.data as Record<string, unknown> | undefined;
+    const qs = fromList(data?.questions);
+    if (qs.length) return qs;
+  }
+  const data = content.data as Record<string, unknown> | undefined;
+  const direct = fromList(data?.questions) ;
+  if (direct.length) return direct;
+  return fromList(content.questions);
 }
 
 /** Saved modules (templates): list → preview → assign to staff. */
