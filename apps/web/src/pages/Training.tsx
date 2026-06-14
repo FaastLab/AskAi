@@ -2,11 +2,18 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Sidebar } from "../components/Sidebar";
 import {
+  assignTraining,
   generateTraining,
+  listTenantUsers,
+  listTrainingAssignments,
+  listTrainingModules,
   listTrainingRecords,
   saveTrainingModule,
+  type TenantUser,
+  type TrainingAssignment,
   type TrainingGenerateResponse,
   type TrainingKind,
+  type TrainingModule,
   type TrainingRecord,
 } from "../lib/api";
 
@@ -53,7 +60,7 @@ const DEFAULT_RUBRIC = {
 };
 
 export function TrainingPage() {
-  const [tab, setTab] = useState<"generate" | "records">("generate");
+  const [tab, setTab] = useState<"generate" | "modules" | "records">("generate");
   return (
     <div className="flex h-dvh">
       <Sidebar />
@@ -75,6 +82,12 @@ export function TrainingPage() {
               Generate
             </button>
             <button
+              onClick={() => setTab("modules")}
+              className={`rounded px-3 py-1 ${tab === "modules" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-slate-100"}`}
+            >
+              Modules
+            </button>
+            <button
               onClick={() => setTab("records")}
               className={`rounded px-3 py-1 ${tab === "records" ? "bg-ink-900 text-white" : "text-ink-600 hover:bg-slate-100"}`}
             >
@@ -84,7 +97,9 @@ export function TrainingPage() {
         </header>
         <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
           <div className="max-w-3xl mx-auto">
-            {tab === "generate" ? <GenerateView /> : <RecordsView />}
+            {tab === "generate" && <GenerateView />}
+            {tab === "modules" && <ModulesView />}
+            {tab === "records" && <RecordsView />}
           </div>
         </div>
       </main>
@@ -469,6 +484,208 @@ function QuestionList({ questions }: { questions: Record<string, unknown>[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Saved modules (templates): list → preview → assign to staff. */
+function ModulesView() {
+  const [modules, setModules] = useState<TrainingModule[] | null>(null);
+  const [selected, setSelected] = useState<TrainingModule | null>(null);
+
+  useEffect(() => {
+    listTrainingModules().then(setModules);
+  }, []);
+
+  if (modules === null) {
+    return <div className="text-sm text-ink-500">Loading modules…</div>;
+  }
+  if (modules.length === 0) {
+    return (
+      <div className="text-sm text-ink-500">
+        No saved modules yet. Go to <span className="font-medium">Generate</span>,
+        create training, and click “Save as module” — it’ll appear here to assign
+        to staff.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-[260px_1fr] gap-4">
+      {/* Module list */}
+      <ul className="space-y-1">
+        {modules.map((m) => (
+          <li key={m.id}>
+            <button
+              onClick={() => setSelected(m)}
+              className={`w-full text-left rounded-md px-3 py-2 text-sm border ${
+                selected?.id === m.id
+                  ? "border-ink-900 bg-white"
+                  : "border-slate-200 bg-white hover:bg-slate-100"
+              }`}
+            >
+              <div className="font-medium text-ink-900 truncate">{m.title}</div>
+              <div className="text-xs text-ink-500">
+                {m.kind} · {new Date(m.created_at).toLocaleDateString()}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Detail + assign */}
+      <div>
+        {selected ? (
+          <div className="space-y-4">
+            <AssignPanel module={selected} />
+            <div>
+              <div className="text-xs uppercase tracking-wide text-ink-500 mb-2">
+                Preview
+              </div>
+              <ResultBody payload={selected.content} />
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-ink-500 pt-2">
+            Select a module to preview it and assign it to staff.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Assign one module to staff members, with a due date. */
+function AssignPanel({ module }: { module: TrainingModule }) {
+  const [staff, setStaff] = useState<TenantUser[]>([]);
+  const [assignments, setAssignments] = useState<TrainingAssignment[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [due, setDue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function reload() {
+    listTrainingAssignments({ module_id: module.id }).then(setAssignments);
+  }
+
+  useEffect(() => {
+    listTenantUsers().then(setStaff);
+    reload();
+    setPicked(new Set());
+    setMsg(null);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module.id]);
+
+  function toggle(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function assign() {
+    if (picked.size === 0 || busy) return;
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const created = await assignTraining({
+        module_id: module.id,
+        user_ids: Array.from(picked),
+        due_at: due ? new Date(due).toISOString() : null,
+      });
+      setMsg(`Assigned to ${created.length} staff member${created.length === 1 ? "" : "s"}.`);
+      setPicked(new Set());
+      reload();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Who already has this module, by user id → assignment (for status display).
+  const byUser = new Map(assignments.map((a) => [a.user_id, a]));
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-ink-900">{module.title}</h3>
+        <span className="text-xs text-ink-500">pass mark {module.pass_mark_pct}%</span>
+      </div>
+
+      <div className="mt-3 text-xs uppercase tracking-wide text-ink-500">
+        Assign to staff
+      </div>
+      {staff.length === 0 ? (
+        <div className="mt-1 text-sm text-ink-500">
+          No staff users found — invite team members in Admin first.
+        </div>
+      ) : (
+        <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-100 divide-y">
+          {staff.map((u) => {
+            const existing = byUser.get(u.id);
+            return (
+              <label
+                key={u.id}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={picked.has(u.id)}
+                  onChange={() => toggle(u.id)}
+                />
+                <span className="flex-1">
+                  {u.full_name || u.email}
+                  <span className="text-ink-400 text-xs"> · {u.role}</span>
+                </span>
+                {existing && (
+                  <span
+                    className={`text-[11px] rounded px-1.5 py-0.5 ${
+                      existing.status === "completed"
+                        ? "bg-emerald-100 text-emerald-900"
+                        : "bg-slate-100 text-ink-600"
+                    }`}
+                  >
+                    {existing.status}
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <label className="flex items-center gap-1 text-sm">
+          <span className="text-ink-500">Due</span>
+          <input
+            type="date"
+            value={due}
+            onChange={(e) => setDue(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1"
+          />
+        </label>
+        <button
+          onClick={assign}
+          disabled={busy || picked.size === 0}
+          className="rounded bg-ink-900 text-white text-sm px-4 py-1.5 hover:bg-ink-700 disabled:opacity-50"
+        >
+          {busy ? "Assigning…" : `Assign${picked.size ? ` (${picked.size})` : ""}`}
+        </button>
+        {msg && <span className="text-xs text-emerald-700">{msg}</span>}
+        {error && <span className="text-xs text-rose-700">{error}</span>}
+      </div>
+
+      {assignments.length > 0 && (
+        <div className="mt-3 text-xs text-ink-500">
+          {assignments.length} assigned ·{" "}
+          {assignments.filter((a) => a.status === "completed").length} completed
+        </div>
+      )}
+    </div>
   );
 }
 

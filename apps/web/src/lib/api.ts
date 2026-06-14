@@ -409,6 +409,21 @@ export function assignTraining(body: {
   return trainingPost<TrainingAssignment[]>("/v1/training/assignments", body);
 }
 
+export async function listTrainingAssignments(opts?: {
+  module_id?: string;
+  mine?: boolean;
+}): Promise<TrainingAssignment[]> {
+  const qs = new URLSearchParams();
+  if (opts?.module_id) qs.set("module_id", opts.module_id);
+  if (opts?.mine) qs.set("mine", "true");
+  const suffix = qs.toString() ? `?${qs}` : "";
+  const r = await fetch(`/v1/training/assignments${suffix}`, {
+    headers: allAuthHeaders(),
+  });
+  if (!r.ok) return [];
+  return (await r.json()) as TrainingAssignment[];
+}
+
 export function submitTraining(body: {
   module_id: string;
   assignment_id?: string | null;
