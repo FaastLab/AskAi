@@ -325,26 +325,47 @@ function GenerateView() {
 }
 
 /** Render whatever the generator returned, by the bits we recognise. */
-function ResultBody({ payload }: { payload: Record<string, unknown> }) {
+/** `learner` = the person SITTING the test. In learner mode we never reveal the
+ * assessment questions or answers in the learn/preview material — otherwise they
+ * can just read the answer key (or look the questions up) before submitting. The
+ * questions appear only in the test section below, without answers. */
+function ResultBody({
+  payload,
+  learner = false,
+}: {
+  payload: Record<string, unknown>;
+  learner?: boolean;
+}) {
   const p = payload;
   // Blended module: { lesson, quiz, scenario }
   if (p.lesson || p.quiz) {
     return (
       <div className="space-y-4">
-        {p.lesson ? <Artefact a={p.lesson as Record<string, unknown>} /> : null}
-        {p.quiz ? <Artefact a={p.quiz as Record<string, unknown>} /> : null}
-        {p.scenario ? <Artefact a={p.scenario as Record<string, unknown>} /> : null}
+        {p.lesson ? <Artefact a={p.lesson as Record<string, unknown>} learner={learner} /> : null}
+        {/* The quiz is pure assessment — hide it from the learner's study material. */}
+        {p.quiz && !learner ? <Artefact a={p.quiz as Record<string, unknown>} learner={learner} /> : null}
+        {p.scenario ? <Artefact a={p.scenario as Record<string, unknown>} learner={learner} /> : null}
       </div>
     );
   }
-  return <Artefact a={p} />;
+  return <Artefact a={p} learner={learner} />;
 }
 
-function Artefact({ a }: { a: Record<string, unknown> }) {
+function Artefact({
+  a,
+  learner = false,
+}: {
+  a: Record<string, unknown>;
+  learner?: boolean;
+}) {
   const kind = a.kind as string;
   const data = (a.data as Record<string, unknown>) || {};
   const grounding = (a.grounding as Record<string, unknown>) || {};
   const citations = (grounding.citations as Record<string, unknown>[]) || [];
+
+  // A standalone quiz/exam is nothing BUT the assessment — there's no study
+  // material in it, so a learner should see none of it before the test.
+  if (learner && (kind === "quiz" || kind === "exam")) return null;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -391,11 +412,15 @@ function Artefact({ a }: { a: Record<string, unknown> }) {
               </ol>
             </div>
           )}
-          <QuestionList questions={(data.questions as Record<string, unknown>[]) || []} />
+          {/* Scenario questions are the assessment — hidden from the learner's
+              study view; they appear (without answers) in the test section. */}
+          {!learner && (
+            <QuestionList questions={(data.questions as Record<string, unknown>[]) || []} />
+          )}
         </div>
       )}
 
-      {/* Quiz / exam questions */}
+      {/* Quiz / exam questions (admin/preview only — learner returned null above) */}
       {(kind === "quiz" || kind === "exam") && (
         <QuestionList questions={(data.questions as Record<string, unknown>[]) || []} />
       )}
@@ -453,7 +478,16 @@ function Artefact({ a }: { a: Record<string, unknown> }) {
   );
 }
 
-function QuestionList({ questions }: { questions: Record<string, unknown>[] }) {
+/** `hideAnswers` renders the questions as a blank exam paper — no correct-option
+ * highlight, no ✓, no model answer, no rationale. Used in the learner's test
+ * section so they see what to answer without seeing the answers. */
+function QuestionList({
+  questions,
+  hideAnswers = false,
+}: {
+  questions: Record<string, unknown>[];
+  hideAnswers?: boolean;
+}) {
   if (!questions.length) return null;
   return (
     <ol className="space-y-3 text-sm mt-2">
@@ -467,28 +501,24 @@ function QuestionList({ questions }: { questions: Record<string, unknown>[] }) {
           </div>
           {Array.isArray(q.options) && (
             <ul className="mt-1 space-y-0.5">
-              {(q.options as string[]).map((o, j) => (
-                <li
-                  key={j}
-                  className={
-                    j === (q.answer_index as number)
-                      ? "text-emerald-700 font-medium"
-                      : "text-ink-700"
-                  }
-                >
-                  {String.fromCharCode(65 + j)}. {o}
-                  {j === (q.answer_index as number) ? " ✓" : ""}
-                </li>
-              ))}
+              {(q.options as string[]).map((o, j) => {
+                const correct = !hideAnswers && j === (q.answer_index as number);
+                return (
+                  <li key={j} className={correct ? "text-emerald-700 font-medium" : "text-ink-700"}>
+                    {String.fromCharCode(65 + j)}. {o}
+                    {correct ? " ✓" : ""}
+                  </li>
+                );
+              })}
             </ul>
           )}
-          {q.model_answer ? (
+          {!hideAnswers && q.model_answer ? (
             <div className="mt-1 text-ink-600">
               <span className="font-medium">Model answer: </span>
               {q.model_answer as string}
             </div>
           ) : null}
-          {q.rationale ? (
+          {!hideAnswers && q.rationale ? (
             <div className="mt-1 text-xs text-ink-500">{q.rationale as string}</div>
           ) : null}
         </li>
@@ -599,6 +629,9 @@ function TakeModule({
 }) {
   const questions = mcqQuestions(module.content);
   const isMcq = questions.length > 0;
+  // For the free-text path, the exam/scenario questions to display (without
+  // answers) so the learner knows what to write about.
+  const writtenQuestions = isMcq ? [] : examQuestions(module.content);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -670,8 +703,9 @@ function TakeModule({
         </button>
       </div>
 
-      {/* Learn: show the module content to read before testing. */}
-      <ResultBody payload={module.content} />
+      {/* Learn: study material ONLY — `learner` strips out the questions and
+          answer keys so the test below isn't spoiled. */}
+      <ResultBody payload={module.content} learner />
 
       {/* Test */}
       <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -703,13 +737,17 @@ function TakeModule({
             ))}
           </ol>
         ) : (
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={8}
-            placeholder="Write your answer here — it will be graded against the rubric."
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm resize-y"
-          />
+          <>
+            {/* The exam/scenario questions — shown WITHOUT model answers. */}
+            <QuestionList questions={writtenQuestions} hideAnswers />
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={8}
+              placeholder="Write your answer here — it will be graded against the rubric."
+              className="mt-3 w-full rounded border border-slate-300 px-3 py-2 text-sm resize-y"
+            />
+          </>
         )}
 
         <div className="mt-4 flex items-center gap-3">
@@ -750,6 +788,28 @@ function mcqQuestions(content: Record<string, unknown>): Record<string, unknown>
   const data = content.data as Record<string, unknown> | undefined;
   const direct = fromList(data?.questions) ;
   if (direct.length) return direct;
+  return fromList(content.questions);
+}
+
+/** Free-text (exam/scenario) questions to show the learner during the test —
+ * those without an answer_index. Looks in the scenario/exam artefact's
+ * data.questions, or a blended module's scenario. */
+function examQuestions(content: Record<string, unknown>): Record<string, unknown>[] {
+  const fromList = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v)
+      ? (v as Record<string, unknown>[]).filter(
+          (q) => typeof q.answer_index !== "number" && typeof q.question === "string",
+        )
+      : [];
+  const data = content.data as Record<string, unknown> | undefined;
+  const direct = fromList(data?.questions);
+  if (direct.length) return direct;
+  const scenario = content.scenario as Record<string, unknown> | undefined;
+  if (scenario) {
+    const sdata = scenario.data as Record<string, unknown> | undefined;
+    const qs = fromList(sdata?.questions);
+    if (qs.length) return qs;
+  }
   return fromList(content.questions);
 }
 
