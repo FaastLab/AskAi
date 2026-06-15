@@ -631,6 +631,36 @@ export async function updatePolicy(body: {
   return (await r.json()) as GatewayPolicy;
 }
 
+// ---- Model routing + failover (owner-only) ---------------------------------
+
+export type RoutingTarget = {
+  name: string; // "qwen" | "openai"
+  label: string;
+  model: string;
+  configured: boolean; // endpoint/key present — usable
+};
+
+export type GatewayRouting = {
+  order: string[]; // selection, primary first; 1 entry = no failover
+  available: RoutingTarget[];
+};
+
+export async function getRouting(): Promise<GatewayRouting | null> {
+  const r = await fetch("/v1/gateway/routing", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as GatewayRouting;
+}
+
+export async function updateRouting(order: string[]): Promise<GatewayRouting> {
+  const r = await fetch("/v1/gateway/routing", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ order }),
+  });
+  if (!r.ok) throw new Error(`Save failed (HTTP ${r.status})`);
+  return (await r.json()) as GatewayRouting;
+}
+
 export type GovernanceEvent = {
   created_at: string;
   action: string;

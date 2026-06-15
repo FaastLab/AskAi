@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
@@ -29,11 +29,14 @@ from faastlab_askai_core.db import (
 )
 from faastlab_askai_core.exceptions import PromptNotFoundError
 from faastlab_askai_core.gateway import (
+    TARGET_NAMES,
     GatewayContext,
     PromptRegistry,
     QuotaService,
     QuotaStatus,
+    available_targets,
     resolve_policy,
+    resolve_target_chain,
 )
 
 router = APIRouter(tags=["gateway"], prefix="/gateway")
@@ -519,10 +522,103 @@ async def update_policy(
     )
 
 
+# ---- Model routing + failover (owner-only) ----------------------------------
+
+
+class TargetView(BaseModel):
+    name: str
+    label: str
+    model: str
+    configured: bool  # endpoint/key present — usable as a route/fallback
+
+
+class RoutingView(BaseModel):
+    # Ordered selection, primary first. ["qwen","openai"] = Qwen then fail over
+    # to OpenAI; a single entry = that model only, no failover.
+    order: list[str]
+    available: list[TargetView]
+
+
+class RoutingUpdate(BaseModel):
+    order: list[str] = Field(min_length=1)
+
+
+def _routing_view(tenant_settings: dict | None) -> RoutingView:
+    chain = resolve_target_chain(tenant_settings)
+    avail = available_targets()
+    return RoutingView(
+        order=[t.name for t in chain],
+        available=[
+            TargetView(
+                name=t.name, label=t.label, model=t.model, configured=t.configured
+            )
+            for t in avail.values()
+        ],
+    )
+
+
+@router.get("/routing", response_model=RoutingView)
+async def get_routing(
+    principal: Principal = Depends(require_scope("owner")),
+) -> RoutingView:
+    """The tenant's model routing chain (primary first) + available targets."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        settings = (
+            await session.execute(
+                select(Tenant.settings).where(Tenant.id == principal.tenant_id)
+            )
+        ).scalar_one_or_none()
+    return _routing_view(settings)
+
+
+@router.put("/routing", response_model=RoutingView)
+async def update_routing(
+    body: RoutingUpdate,
+    principal: Principal = Depends(require_scope("owner")),
+) -> RoutingView:
+    """Set the tenant's model routing chain.
+
+    ``order`` is an ordered list of target names (``qwen`` / ``openai``); the
+    first is primary and any later ones are failover targets. One name = no
+    failover (the chosen API just fails if unreachable).
+    """
+    seen: list[str] = []
+    for name in body.order:
+        if name not in TARGET_NAMES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"unknown model target {name!r} (allowed: {', '.join(TARGET_NAMES)})",
+            )
+        if name not in seen:  # de-dup, preserve order
+            seen.append(name)
+
+    sm = get_sessionmaker()
+    async with sm() as session:
+        tenant = await session.get(Tenant, principal.tenant_id)
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="tenant not found")
+        settings = dict(tenant.settings or {})
+        gateway_cfg = dict(settings.get("gateway") or {})
+        gateway_cfg["routing"] = seen
+        settings["gateway"] = gateway_cfg
+        tenant.settings = settings  # reassign so SQLAlchemy flags the JSONB dirty
+        await session.commit()
+
+    await record_action(
+        principal=principal,
+        action="routing.update",
+        resource="/v1/gateway/routing",
+        extra={"order": seen},
+    )
+    return _routing_view({"gateway": {"routing": seen}})
+
+
 # ---- #6 Governance audit feed (owner-only) ----------------------------------
 
 _GOVERNANCE_ACTIONS = (
     "policy.update",
+    "routing.update",
     "prompt.update",
     "prompt.activate",
     "signup",

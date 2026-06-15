@@ -22,11 +22,13 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from faastlab_askai_core.adapters import LLMMessage
-from faastlab_askai_core.factory import get_llm_for
+from faastlab_askai_core.exceptions import LLMError
+from faastlab_askai_core.factory import get_llm_for_target
 from faastlab_askai_core.gateway.context import GatewayContext
 from faastlab_askai_core.gateway.policy import Policy, PolicyEngine, resolve_policy
 from faastlab_askai_core.gateway.quota import QuotaService
-from faastlab_askai_core.gateway.router import ModelRoute, load_tenant_settings, resolve_route
+from faastlab_askai_core.gateway.router import ModelRoute, load_tenant_settings
+from faastlab_askai_core.gateway.targets import ModelTarget, resolve_target_chain
 from faastlab_askai_core.gateway.usage import UsageRecord, record_usage, usage_from_text
 
 log = logging.getLogger(__name__)
@@ -50,18 +52,23 @@ class AIGateway:
         self._quota = quota or QuotaService()
         self._policy = PolicyEngine()
 
-    async def _route_and_gate(
+    async def _gate(
         self, ctx: GatewayContext
-    ) -> tuple[ModelRoute, object, Policy]:
-        # Load the tenant row once; share with router + quota + policy.
+    ) -> tuple[list[ModelTarget], Policy]:
+        """Load the tenant row once, enforce quota, and resolve the ordered
+        target chain to try. Quota is checked here (before any model capacity is
+        spent); per-target policy is enforced inside the loop so a disallowed
+        primary can still fall through to an allowed fallback."""
         tenant_settings = await load_tenant_settings(ctx.tenant_id)
-        route = resolve_route(tenant_settings, ctx.purpose)
         policy = resolve_policy(tenant_settings)
-        # Governance: suspended tenant / disallowed model -> PolicyViolation.
-        self._policy.enforce(policy, model=route.model)
         # Raises QuotaExceeded if over budget (before any model capacity spent).
         await self._quota.enforce(ctx, tenant_settings=tenant_settings or {})
-        return route, get_llm_for(route.provider), policy
+        chain = resolve_target_chain(tenant_settings)
+        # Never "fail over" to a target that can't work (e.g. OpenAI chosen but
+        # no API key configured); keep order. If somehow none are configured,
+        # fall back to the raw chain so the error surfaces honestly.
+        usable = [t for t in chain if t.configured] or chain
+        return usable, policy
 
     async def complete(
         self,
@@ -71,38 +78,65 @@ class AIGateway:
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> GatewayResult:
-        route, adapter, policy = await self._route_and_gate(ctx)
-        max_tokens = self._policy.effective_max_tokens(policy, max_tokens)
+        """Try each target in the chain; on a target error, FAIL OVER to the
+        next. With a single-target chain there is nothing to fall over to, so
+        the error propagates — i.e. "Qwen only" / "OpenAI only" just fail if the
+        chosen API is unreachable, while "both" tries Qwen then OpenAI."""
+        chain, policy = await self._gate(ctx)
         prompt = _prompt_text(messages)
-        t0 = perf_counter()
-        try:
-            text = await adapter.complete(
-                messages, model=route.model, temperature=temperature, max_tokens=max_tokens
+        last_exc: Exception | None = None
+        for i, target in enumerate(chain):
+            # Governance: suspended tenant / disallowed model -> PolicyViolation.
+            # Skip a disallowed target so an allowed fallback can still serve.
+            try:
+                self._policy.enforce(policy, model=target.model)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            capped = self._policy.effective_max_tokens(policy, max_tokens)
+            adapter = get_llm_for_target(target)
+            t0 = perf_counter()
+            try:
+                text = await adapter.complete(
+                    messages, model=target.model, temperature=temperature, max_tokens=capped
+                )
+            except LLMError as exc:
+                await record_usage(
+                    ctx,
+                    usage_from_text(
+                        prompt=prompt,
+                        completion="",
+                        provider=target.provider,
+                        model=target.model,
+                        latency_ms=(perf_counter() - t0) * 1000,
+                        status="error",
+                        error=str(exc)[:500],
+                    ),
+                )
+                last_exc = exc
+                if i < len(chain) - 1:
+                    log.warning(
+                        "gateway: target %s failed (%s) — failing over to %s",
+                        target.name, exc, chain[i + 1].name,
+                    )
+                    continue
+                raise
+            usage = usage_from_text(
+                prompt=prompt,
+                completion=text,
+                provider=target.provider,
+                model=target.model,
+                latency_ms=(perf_counter() - t0) * 1000,
             )
-        except Exception as exc:
-            await record_usage(
-                ctx,
-                usage_from_text(
-                    prompt=prompt,
-                    completion="",
-                    provider=route.provider,
-                    model=route.model,
-                    latency_ms=(perf_counter() - t0) * 1000,
-                    status="error",
-                    error=str(exc)[:500],
-                ),
+            await record_usage(ctx, usage)
+            route = ModelRoute(
+                provider=target.provider, model=target.model, purpose=ctx.purpose
             )
-            raise
-
-        usage = usage_from_text(
-            prompt=prompt,
-            completion=text,
-            provider=route.provider,
-            model=route.model,
-            latency_ms=(perf_counter() - t0) * 1000,
-        )
-        await record_usage(ctx, usage)
-        return GatewayResult(text=text, route=route, usage=usage)
+            return GatewayResult(text=text, route=route, usage=usage)
+        # Nothing served — re-raise the last failure (policy or LLM error).
+        if last_exc is not None:
+            raise last_exc
+        raise LLMError("No usable model target for this request")
 
     async def stream(
         self,
@@ -112,23 +146,61 @@ class AIGateway:
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        route, adapter, policy = await self._route_and_gate(ctx)
-        max_tokens = self._policy.effective_max_tokens(policy, max_tokens)
+        """Streaming variant. Failover is only possible BEFORE the first token is
+        emitted — once we've started yielding to the client we can't un-yield, so
+        a mid-stream failure propagates."""
+        chain, policy = await self._gate(ctx)
         prompt = _prompt_text(messages)
-        parts: list[str] = []
-        t0 = perf_counter()
-        async for token in adapter.stream(
-            messages, model=route.model, temperature=temperature, max_tokens=max_tokens
-        ):
-            parts.append(token)
-            yield token
-        await record_usage(
-            ctx,
-            usage_from_text(
-                prompt=prompt,
-                completion="".join(parts),
-                provider=route.provider,
-                model=route.model,
-                latency_ms=(perf_counter() - t0) * 1000,
-            ),
-        )
+        last_exc: Exception | None = None
+        for i, target in enumerate(chain):
+            try:
+                self._policy.enforce(policy, model=target.model)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            capped = self._policy.effective_max_tokens(policy, max_tokens)
+            adapter = get_llm_for_target(target)
+            parts: list[str] = []
+            t0 = perf_counter()
+            try:
+                async for token in adapter.stream(
+                    messages, model=target.model, temperature=temperature, max_tokens=capped
+                ):
+                    parts.append(token)
+                    yield token
+            except LLMError as exc:
+                last_exc = exc
+                # Only safe to fail over if nothing has reached the client yet.
+                if not parts and i < len(chain) - 1:
+                    log.warning(
+                        "gateway: stream target %s failed before first token — "
+                        "failing over to %s", target.name, chain[i + 1].name,
+                    )
+                    continue
+                await record_usage(
+                    ctx,
+                    usage_from_text(
+                        prompt=prompt,
+                        completion="".join(parts),
+                        provider=target.provider,
+                        model=target.model,
+                        latency_ms=(perf_counter() - t0) * 1000,
+                        status="error",
+                        error=str(exc)[:500],
+                    ),
+                )
+                raise
+            await record_usage(
+                ctx,
+                usage_from_text(
+                    prompt=prompt,
+                    completion="".join(parts),
+                    provider=target.provider,
+                    model=target.model,
+                    latency_ms=(perf_counter() - t0) * 1000,
+                ),
+            )
+            return
+        if last_exc is not None:
+            raise last_exc
+        raise LLMError("No usable model target for this request")

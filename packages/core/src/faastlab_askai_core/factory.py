@@ -74,6 +74,29 @@ def get_llm_for(provider: str) -> LLMAdapter:
     )
 
 
+def get_llm_for_target(target: Any) -> LLMAdapter:
+    """Return an LLM adapter bound to a specific gateway ``ModelTarget``.
+
+    Both Qwen (sovereign vLLM) and OpenAI (cloud) speak the OpenAI-compatible
+    API, so we reuse the OpenAI adapter but override the endpoint + key + model
+    for this target. This is what lets one tenant route to Qwen and fail over to
+    OpenAI cloud — the same adapter pointed at different base_urls. Not memoised:
+    targets vary per tenant/route and building a client is cheap.
+    """
+    from faastlab_askai_askai.adapters import OpenAIChatLLM
+
+    settings = get_settings()
+    bound = settings.model_copy(
+        update={
+            "llm_provider": "openai",
+            "llm_base_url": target.base_url,
+            "openai_api_key": target.api_key,
+            "llm_model": target.model,
+        }
+    )
+    return OpenAIChatLLM(bound)
+
+
 @lru_cache(maxsize=1)
 def get_embeddings() -> EmbeddingsAdapter:
     """Return the configured embeddings adapter (memoised)."""

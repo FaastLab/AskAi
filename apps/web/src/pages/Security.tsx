@@ -3,9 +3,12 @@ import { Sidebar } from "../components/Sidebar";
 import {
   getGovernanceEvents,
   getPolicy,
+  getRouting,
   listTenantUsers,
   updatePolicy,
+  updateRouting,
   type GatewayPolicy,
+  type GatewayRouting,
   type GovernanceEvent,
   type TenantUser,
 } from "../lib/api";
@@ -30,6 +33,132 @@ const ROLE_BADGE: Record<string, string> = {
 
 function Check({ on }: { on: boolean }) {
   return <span className={on ? "text-emerald-600" : "text-slate-300"}>{on ? "✓" : "—"}</span>;
+}
+
+/** Pick which model(s) serve this tenant, and in what order. Choosing both =
+ * Qwen primary with OpenAI failover; choosing one = that model only, no
+ * failover (it just fails if unreachable). */
+function ModelRouting() {
+  const [routing, setRouting] = useState<GatewayRouting | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function load() {
+    const r = await getRouting();
+    if (r) {
+      setRouting(r);
+      setSel(new Set(r.order));
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+
+  if (!routing) return null;
+
+  // Backend returns `available` in canonical order (Qwen first), so filtering
+  // it by the selection keeps Qwen as primary whenever it's chosen.
+  const order = routing.available.map((t) => t.name).filter((n) => sel.has(n));
+  const dirty = order.join() !== routing.order.join();
+  const primary = routing.available.find((t) => t.name === order[0]);
+  const fallback = order.length > 1
+    ? routing.available.find((t) => t.name === order[1])
+    : undefined;
+
+  function toggle(name: string, configured: boolean) {
+    if (!configured) return;
+    setSel((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (order.length === 0) {
+      setMsg("Select at least one model.");
+      return;
+    }
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await updateRouting(order);
+      setRouting(r);
+      setSel(new Set(r.order));
+      setMsg("Saved — applies on the next request.");
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 max-w-3xl">
+      <h2 className="text-sm font-semibold">Model routing &amp; failover</h2>
+      <p className="text-xs text-ink-500 mb-3">
+        Choose which model serves this tenant. Pick both for automatic failover;
+        pick one to pin to it.
+      </p>
+
+      <div className="space-y-2">
+        {routing.available.map((t) => (
+          <label
+            key={t.name}
+            title={t.configured ? undefined : "Not configured on the server"}
+            className={`flex items-center gap-2 text-sm rounded border px-3 py-2 ${
+              t.configured ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
+            } ${sel.has(t.name) ? "border-ink-700 bg-slate-50" : "border-slate-200"}`}
+          >
+            <input
+              type="checkbox"
+              disabled={!t.configured}
+              checked={sel.has(t.name)}
+              onChange={() => toggle(t.name, t.configured)}
+            />
+            <span className="flex-1">
+              {t.label}
+              <span className="text-ink-400 font-mono text-xs"> · {t.model}</span>
+            </span>
+            {!t.configured && (
+              <span className="text-[11px] text-amber-700">not configured</span>
+            )}
+            {sel.has(t.name) && t.name === order[0] && (
+              <span className="text-[11px] rounded bg-emerald-100 text-emerald-900 px-1.5 py-0.5">
+                primary
+              </span>
+            )}
+            {sel.has(t.name) && t.name === order[1] && (
+              <span className="text-[11px] rounded bg-slate-200 text-ink-700 px-1.5 py-0.5">
+                failover
+              </span>
+            )}
+          </label>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs text-ink-600">
+        {order.length === 0
+          ? "No model selected."
+          : order.length === 1
+            ? `${primary?.label} only — no failover (fails if the API is unreachable).`
+            : `${primary?.label} primary → fails over to ${fallback?.label} if unreachable.`}
+      </p>
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={!dirty || saving || order.length === 0}
+          className="text-sm rounded bg-ink-900 text-white px-3 py-1.5 hover:bg-ink-700 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save routing"}
+        </button>
+        {dirty && <span className="text-xs text-amber-700">unsaved changes</span>}
+        {msg && <span className="text-xs text-ink-600">{msg}</span>}
+      </div>
+    </section>
+  );
 }
 
 export function SecurityPage() {
@@ -130,6 +259,9 @@ export function SecurityPage() {
           <div className="p-6 text-sm text-ink-500">Loading…</div>
         ) : (
           <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
+            {/* Model routing + failover */}
+            <ModelRouting />
+
             {/* Policy engine */}
             <section className="rounded-lg border border-slate-200 bg-white p-4 max-w-3xl">
               <h2 className="text-sm font-semibold">AI policy</h2>

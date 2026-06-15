@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     # off OpenAI. None = the SDK default (api.openai.com). Separate from
     # embeddings_base_url so LLM and embeddings can target different servers.
     llm_base_url: str | None = None
+    # ---- OpenAI cloud target (for gateway model routing / failover) ----
+    # The sovereign Qwen target uses llm_model + llm_base_url above. These two
+    # describe the SEPARATE OpenAI-cloud target a tenant can route to (or fail
+    # over to). Cloud base_url=None means the SDK default (api.openai.com); the
+    # key is openai_api_key. So a tenant can run "Qwen primary, OpenAI cloud
+    # fallback" without the two sharing an endpoint.
+    openai_cloud_model: str = "gpt-4o-mini"
+    openai_cloud_base_url: str | None = None
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
     azure_openai_api_version: str = "2024-08-01-preview"

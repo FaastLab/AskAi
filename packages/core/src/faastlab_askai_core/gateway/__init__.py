@@ -41,6 +41,12 @@ from faastlab_askai_core.gateway.router import (
     resolve_route,
 )
 from faastlab_askai_core.gateway.service import AIGateway, GatewayResult
+from faastlab_askai_core.gateway.targets import (
+    TARGET_NAMES,
+    ModelTarget,
+    available_targets,
+    resolve_target_chain,
+)
 from faastlab_askai_core.gateway.usage import (
     UsageRecord,
     estimate_cost_usd,
@@ -51,11 +57,15 @@ from faastlab_askai_core.gateway.usage import (
 
 __all__ = [
     "KNOWN_PROVIDERS",
+    "TARGET_NAMES",
     "AIGateway",
     "GatewayContext",
     "GatewayResult",
     "ModelRoute",
     "ModelRouter",
+    "ModelTarget",
+    "available_targets",
+    "resolve_target_chain",
     "Policy",
     "PolicyEngine",
     "PromptRecord",
