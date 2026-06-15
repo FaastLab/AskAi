@@ -445,6 +445,7 @@ class PolicyView(BaseModel):
     allowed_models: list[str]  # empty = any model allowed
     max_tokens_per_request: int  # 0 = no cap
     allow_cloud: bool  # False = sovereign lock (no cloud egress)
+    jailbreak_guard: bool  # screen prompts for jailbreak / injection
     available_models: list[str]  # suggestions for the allow-list UI
 
 
@@ -453,6 +454,7 @@ class PolicyUpdate(BaseModel):
     allowed_models: list[str] = Field(default_factory=list)
     max_tokens_per_request: int = Field(default=0, ge=0, le=100000)
     allow_cloud: bool = True
+    jailbreak_guard: bool = True
 
 
 def _available_models() -> list[str]:
@@ -482,6 +484,7 @@ async def get_policy(
         allowed_models=list(p.allowed_models),
         max_tokens_per_request=p.max_tokens_per_request,
         allow_cloud=p.allow_cloud,
+        jailbreak_guard=p.jailbreak_guard,
         available_models=_available_models(),
     )
 
@@ -505,6 +508,7 @@ async def update_policy(
             "allowed_models": [m.strip() for m in body.allowed_models if m.strip()],
             "max_tokens_per_request": body.max_tokens_per_request,
             "allow_cloud": body.allow_cloud,
+            "jailbreak_guard": body.jailbreak_guard,
         }
         settings["gateway"] = gateway_cfg
         tenant.settings = settings  # reassign so SQLAlchemy flags the JSONB dirty
@@ -523,6 +527,7 @@ async def update_policy(
         allowed_models=list(p.allowed_models),
         max_tokens_per_request=p.max_tokens_per_request,
         allow_cloud=p.allow_cloud,
+        jailbreak_guard=p.jailbreak_guard,
         available_models=_available_models(),
     )
 

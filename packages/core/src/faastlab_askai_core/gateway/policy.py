@@ -34,6 +34,10 @@ class Policy:
     # Data-egress guardrail. True (default) preserves today's behaviour; False
     # forbids any non-sovereign (cloud) target — the sovereignty lock.
     allow_cloud: bool = True
+    # Safety guardrail: screen prompts for jailbreak / prompt-injection and
+    # block on a hit. Default ON — the heuristic guard is high-precision so it
+    # rarely blocks a genuine question.
+    jailbreak_guard: bool = True
 
     @property
     def has_restrictions(self) -> bool:
@@ -42,6 +46,7 @@ class Policy:
             or bool(self.allowed_models)
             or self.max_tokens_per_request > 0
             or not self.allow_cloud
+            or not self.jailbreak_guard
         )
 
 
@@ -63,6 +68,7 @@ def resolve_policy(tenant_settings: dict[str, Any] | None) -> Policy:
         allowed_models=tuple(str(m).strip() for m in models if str(m).strip()),
         max_tokens_per_request=_coerce_int(p.get("max_tokens_per_request")),
         allow_cloud=bool(p.get("allow_cloud", True)),
+        jailbreak_guard=bool(p.get("jailbreak_guard", True)),
     )
 
 

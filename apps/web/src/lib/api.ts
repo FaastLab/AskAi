@@ -609,6 +609,7 @@ export type GatewayPolicy = {
   allowed_models: string[]; // empty = any
   max_tokens_per_request: number; // 0 = no cap
   allow_cloud: boolean; // false = sovereign lock (no cloud egress)
+  jailbreak_guard: boolean; // screen prompts for jailbreak / injection
   available_models: string[];
 };
 
@@ -623,6 +624,7 @@ export async function updatePolicy(body: {
   allowed_models: string[];
   max_tokens_per_request: number;
   allow_cloud: boolean;
+  jailbreak_guard: boolean;
 }): Promise<GatewayPolicy> {
   const r = await fetch("/v1/gateway/policy", {
     method: "PUT",

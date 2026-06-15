@@ -177,6 +177,7 @@ export function SecurityPage() {
   const [allowed, setAllowed] = useState<string[]>([]);
   const [maxTokens, setMaxTokens] = useState(0);
   const [allowCloud, setAllowCloud] = useState(true);
+  const [jailbreakGuard, setJailbreakGuard] = useState(true);
 
   async function refresh() {
     setLoading(true);
@@ -191,6 +192,7 @@ export function SecurityPage() {
       setAllowed(p.allowed_models);
       setMaxTokens(p.max_tokens_per_request);
       setAllowCloud(p.allow_cloud);
+      setJailbreakGuard(p.jailbreak_guard);
     }
     setUsers(u ?? []);
     setEvents(e ?? []);
@@ -215,6 +217,7 @@ export function SecurityPage() {
         allowed_models: allowed,
         max_tokens_per_request: maxTokens,
         allow_cloud: allowCloud,
+        jailbreak_guard: jailbreakGuard,
       });
       setPolicy(p);
       setMsg("Policy saved — enforced on the next request.");
@@ -244,6 +247,7 @@ export function SecurityPage() {
     (enabled !== policy.enabled ||
       maxTokens !== policy.max_tokens_per_request ||
       allowCloud !== policy.allow_cloud ||
+      jailbreakGuard !== policy.jailbreak_guard ||
       allowed.slice().sort().join() !== policy.allowed_models.slice().sort().join());
 
   return (
@@ -300,6 +304,22 @@ export function SecurityPage() {
                   <span className="block text-xs text-ink-500">
                     Blocks any request from leaving for a cloud model (OpenAI),
                     even as a routing failover. Sovereign models only.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm mb-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={jailbreakGuard}
+                  onChange={(e) => setJailbreakGuard(e.target.checked)}
+                />
+                <span>
+                  Jailbreak / prompt-injection guard
+                  <span className="block text-xs text-ink-500">
+                    Screens every prompt and blocks attempts to override the
+                    system instructions, extract the prompt, or bypass safety.
                   </span>
                 </span>
               </label>

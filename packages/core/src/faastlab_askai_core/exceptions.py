@@ -98,6 +98,12 @@ class PolicyViolation(GatewayError):
     AI, model not on the allow-list, etc.). The API maps this to HTTP 403."""
 
 
+class GuardViolation(PolicyViolation):
+    """The prompt was blocked by a safety guard (e.g. jailbreak / prompt-
+    injection detection) before reaching the model. Subclasses PolicyViolation
+    so the API maps it to HTTP 403 via the same handler."""
+
+
 class PromptNotFoundError(GatewayError):
     """No prompt matches the requested name (and version)."""
 
