@@ -39,6 +39,9 @@ class ModelTarget:
     base_url: str | None
     api_key: str | None
     configured: bool  # is this target actually usable (endpoint/key present)?
+    # True = runs on our own sovereign infra (data never leaves). False = a
+    # cloud endpoint (OpenAI) — gated by the policy's allow_cloud flag.
+    sovereign: bool
 
 
 def available_targets(settings: Any = None) -> dict[str, ModelTarget]:
@@ -59,6 +62,7 @@ def available_targets(settings: Any = None) -> dict[str, ModelTarget]:
             # vLLM ignores the key, but the SDK requires a non-empty string.
             api_key=s.openai_api_key or "sk-sovereign-local",
             configured=bool(s.llm_base_url),
+            sovereign=True,  # our own vLLM box — data stays on-prem
         ),
         "openai": ModelTarget(
             name="openai",
@@ -68,6 +72,7 @@ def available_targets(settings: Any = None) -> dict[str, ModelTarget]:
             base_url=s.openai_cloud_base_url,  # None → api.openai.com
             api_key=s.openai_api_key,
             configured=bool(s.openai_api_key),
+            sovereign=False,  # leaves our infra → gated by policy.allow_cloud
         ),
     }
 

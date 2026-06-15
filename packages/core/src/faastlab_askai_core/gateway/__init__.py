@@ -40,6 +40,7 @@ from faastlab_askai_core.gateway.router import (
     load_tenant_settings,
     resolve_route,
 )
+from faastlab_askai_core.gateway.llm_adapter import GatewayLLMAdapter
 from faastlab_askai_core.gateway.service import AIGateway, GatewayResult
 from faastlab_askai_core.gateway.targets import (
     TARGET_NAMES,
@@ -60,6 +61,7 @@ __all__ = [
     "TARGET_NAMES",
     "AIGateway",
     "GatewayContext",
+    "GatewayLLMAdapter",
     "GatewayResult",
     "ModelRoute",
     "ModelRouter",

@@ -18,14 +18,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from time import perf_counter
 from typing import Any
 from uuid import UUID
 
-from faastlab_askai_core.config import get_settings
 from faastlab_askai_core.exceptions import AskAiError
-from faastlab_askai_core.factory import get_llm
-from faastlab_askai_core.gateway import GatewayContext, record_usage, usage_from_text
+from faastlab_askai_core.gateway import GatewayLLMAdapter
 from faastlab_askai_mcp.server import dispatch_tool, tool_specs
 
 log = logging.getLogger(__name__)
@@ -84,7 +81,10 @@ class AgentService:
     """Stateless; construct once and share."""
 
     def __init__(self, *, llm: Any = None, max_steps: int = 6, max_tokens: int = 1400) -> None:
-        self._llm = llm or get_llm()
+        # `llm` is injectable for tests. In production it's left None and a
+        # per-run, tenant-bound GatewayLLMAdapter is built in run() so the whole
+        # tool loop is governed + metered through the gateway (purpose="agent").
+        self._llm = llm
         self._max_steps = max_steps
         self._max_tokens = max_tokens
 
@@ -97,7 +97,17 @@ class AgentService:
         user_id: str | None = None,
         request_id: str | None = None,
     ) -> AgentResult:
-        if not hasattr(self._llm, "chat_with_tools"):
+        # Govern the whole loop: a tenant-bound gateway adapter so every
+        # tool-call enforces quota/policy/sovereign-lock + routing and is metered
+        # (purpose="agent"). Tests inject their own `self._llm`.
+        llm = self._llm or GatewayLLMAdapter(
+            tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
+            user_id=user_id,
+            request_id=request_id,
+            purpose="agent",
+        )
+        if not hasattr(llm, "chat_with_tools"):
             raise AgentError(
                 "The configured LLM adapter does not support tool-calling; "
                 "the agent needs the OpenAI-compatible adapter (vLLM/OpenAI)."
@@ -109,13 +119,12 @@ class AgentService:
             {"role": "user", "content": goal},
         ]
         steps: list[AgentStep] = []
-        t0 = perf_counter()
         answer = ""
         iterations = 0
 
         for i in range(self._max_steps):
             iterations = i + 1
-            msg = await self._llm.chat_with_tools(
+            msg = await llm.chat_with_tools(
                 messages, tools=tools, max_tokens=self._max_tokens
             )
             tool_calls = getattr(msg, "tool_calls", None)
@@ -162,7 +171,7 @@ class AgentService:
                 )
         else:
             # Step budget exhausted without a final answer — force a wrap-up.
-            wrap = await self._llm.chat_with_tools(
+            wrap = await llm.chat_with_tools(
                 [
                     *messages,
                     {
@@ -175,32 +184,6 @@ class AgentService:
             )
             answer = wrap.content or answer or "(reached the step limit)"
 
-        await self._record(tenant_id, user_id, request_id, messages, answer, t0)
+        # Usage is metered inside the gateway on every chat_with_tools call, so
+        # there's no separate aggregate record to write here.
         return AgentResult(answer=answer, steps=steps, iterations=iterations)
-
-    async def _record(
-        self,
-        tenant_id: UUID,
-        user_id: str | None,
-        request_id: str | None,
-        messages: list[dict[str, Any]],
-        answer: str,
-        t0: float,
-    ) -> None:
-        settings = get_settings()
-        prompt_text = "\n".join(str(m.get("content") or "") for m in messages)
-        await record_usage(
-            GatewayContext(
-                tenant_id=tenant_id,
-                user_id=user_id,
-                purpose="agent",
-                request_id=request_id,
-            ),
-            usage_from_text(
-                prompt=prompt_text,
-                completion=answer,
-                provider=settings.llm_provider,
-                model=settings.llm_model,
-                latency_ms=(perf_counter() - t0) * 1000,
-            ),
-        )

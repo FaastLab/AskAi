@@ -6,6 +6,10 @@ chokepoint BEFORE any model call:
   - enabled:                 master switch; False suspends ALL AI for the tenant.
   - allowed_models:          optional whitelist; empty = any routed model is ok.
   - max_tokens_per_request:  hard cap on generation length (0 = no cap).
+  - allow_cloud:             data-egress guardrail. False = NO request may leave
+                             the sovereign stack — the gateway drops every cloud
+                             (non-sovereign) target, so this tenant's prompts can
+                             never reach OpenAI, even via failover.
 
 This is the "what the AI may / may not do" layer an enterprise security review
 asks for. Defaults are permissive (enabled, no model restriction, no cap) so
@@ -27,6 +31,13 @@ class Policy:
     enabled: bool = True
     allowed_models: tuple[str, ...] = ()
     max_tokens_per_request: int = 0  # 0 = no cap
+    # Data-egress guardrail. True (default) preserves today's behaviour; False
+    # forbids any non-sovereign (cloud) target — the sovereignty lock.
+    allow_cloud: bool = True
+    # Safety guardrail: screen prompts for jailbreak / prompt-injection and
+    # block on a hit. Default ON — the heuristic guard is high-precision so it
+    # rarely blocks a genuine question.
+    jailbreak_guard: bool = True
 
     @property
     def has_restrictions(self) -> bool:
@@ -34,6 +45,8 @@ class Policy:
             not self.enabled
             or bool(self.allowed_models)
             or self.max_tokens_per_request > 0
+            or not self.allow_cloud
+            or not self.jailbreak_guard
         )
 
 
@@ -54,6 +67,8 @@ def resolve_policy(tenant_settings: dict[str, Any] | None) -> Policy:
         enabled=bool(p.get("enabled", True)),
         allowed_models=tuple(str(m).strip() for m in models if str(m).strip()),
         max_tokens_per_request=_coerce_int(p.get("max_tokens_per_request")),
+        allow_cloud=bool(p.get("allow_cloud", True)),
+        jailbreak_guard=bool(p.get("jailbreak_guard", True)),
     )
 
 

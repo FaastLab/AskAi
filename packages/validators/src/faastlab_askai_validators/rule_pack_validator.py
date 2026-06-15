@@ -23,17 +23,15 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
 from faastlab_askai_core.adapters import LLMAdapter, LLMMessage
-from faastlab_askai_core.factory import get_llm
+from faastlab_askai_core.gateway import GatewayLLMAdapter
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.service import SearchService
-
 from faastlab_askai_validators.rule_packs import (
-    RulePack,
     RuleRequirement,
     get_pack,
 )
@@ -100,7 +98,11 @@ class RulePackValidator:
         search: SearchService | None = None,
         retrieve_k: int = 5,
     ) -> None:
-        self._llm = llm or get_llm()
+        # Left None in production: validate() builds a tenant-bound
+        # GatewayLLMAdapter so scoring is governed + metered (purpose="validate")
+        # through the gateway instead of calling a provider directly. Tests
+        # inject their own adapter.
+        self._llm = llm
         self._search = search or SearchService()
         self._retrieve_k = retrieve_k
 
@@ -116,7 +118,11 @@ class RulePackValidator:
         if pack is None:
             raise ValueError(f"unknown rule pack: {pack_id}")
 
-        started = datetime.now(timezone.utc)
+        # Bind generation to this tenant through the gateway (governed + metered)
+        # unless an adapter was injected for tests.
+        llm = self._llm or GatewayLLMAdapter(tenant_id=tenant_id, purpose="validate")
+
+        started = datetime.now(UTC)
         results: list[RequirementResult] = []
 
         for req in pack.requirements:
@@ -124,6 +130,7 @@ class RulePackValidator:
                 tenant_id=tenant_id,
                 document_id=document_id,
                 requirement=req,
+                llm=llm,
             )
             results.append(result)
 
@@ -151,7 +158,7 @@ class RulePackValidator:
         else:
             overall = "red"
 
-        ended = datetime.now(timezone.utc)
+        ended = datetime.now(UTC)
         return RulePackReport(
             pack_id=pack.id,
             pack_name=pack.name,
@@ -174,6 +181,7 @@ class RulePackValidator:
         tenant_id: UUID,
         document_id: UUID,
         requirement: RuleRequirement,
+        llm: LLMAdapter,
     ) -> RequirementResult:
         # Retrieve top-k chunks FROM THIS DOC ONLY for the requirement.
         # We scope by document_id via SearchFilters.metadata so chunks
@@ -190,7 +198,7 @@ class RulePackValidator:
                 ),
             )
             chunks = hits.hits
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("validator: retrieval failed for %s: %s", requirement.id, exc)
             chunks = []
 
@@ -218,7 +226,7 @@ class RulePackValidator:
         )
 
         try:
-            raw = await self._llm.complete(
+            raw = await llm.complete(
                 messages=[
                     LLMMessage(role="system", content=_ADJUDICATION_PROMPT),
                     LLMMessage(role="user", content=user),
@@ -226,7 +234,7 @@ class RulePackValidator:
                 temperature=0.0,
                 max_tokens=400,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("validator: LLM call failed for %s", requirement.id)
             return RequirementResult(
                 requirement_id=requirement.id,

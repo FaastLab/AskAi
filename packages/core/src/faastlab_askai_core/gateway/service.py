@@ -22,9 +22,10 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from faastlab_askai_core.adapters import LLMMessage
-from faastlab_askai_core.exceptions import LLMError
+from faastlab_askai_core.exceptions import GuardViolation, LLMError, PolicyViolation
 from faastlab_askai_core.factory import get_llm_for_target
 from faastlab_askai_core.gateway.context import GatewayContext
+from faastlab_askai_core.gateway.guard import HeuristicJailbreakGuard, JailbreakGuard
 from faastlab_askai_core.gateway.policy import Policy, PolicyEngine, resolve_policy
 from faastlab_askai_core.gateway.quota import QuotaService
 from faastlab_askai_core.gateway.router import ModelRoute, load_tenant_settings
@@ -45,12 +46,65 @@ def _prompt_text(messages: list[LLMMessage]) -> str:
     return "\n".join(m.content for m in messages)
 
 
+def _user_text(messages: list) -> str:
+    """User-authored text only, from either LLMMessage objects or OpenAI dicts.
+
+    The guard screens what the USER sent (not our system prompt or tool
+    results), across both the typed `complete` path and the dict-based
+    tool-calling path."""
+    parts: list[str] = []
+    for m in messages:
+        if isinstance(m, dict):
+            role, content = m.get("role"), m.get("content")
+        else:
+            role, content = getattr(m, "role", None), getattr(m, "content", None)
+        if role == "user" and content:
+            parts.append(str(content))
+    return "\n".join(parts)
+
+
 class AIGateway:
     """Governed LLM access. Stateless; construct once and share."""
 
-    def __init__(self, *, quota: QuotaService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        quota: QuotaService | None = None,
+        guard: JailbreakGuard | None = None,
+    ) -> None:
         self._quota = quota or QuotaService()
         self._policy = PolicyEngine()
+        # Input safety screen (jailbreak / prompt-injection). Swap in a
+        # model-based guard later behind the same protocol.
+        self._guard = guard or HeuristicJailbreakGuard()
+
+    async def _screen(
+        self, ctx: GatewayContext, messages: list, policy: Policy
+    ) -> None:
+        """Block + record a jailbreak / prompt-injection attempt before it
+        reaches the model. No-op when the tenant has the guard disabled."""
+        if not policy.jailbreak_guard:
+            return
+        text = _user_text(messages)
+        verdict = self._guard.screen(text)
+        if not verdict.flagged:
+            return
+        await record_usage(
+            ctx,
+            usage_from_text(
+                prompt=text,
+                completion="",
+                provider="guard",
+                model="jailbreak-guard",
+                latency_ms=0.0,
+                status="blocked",
+                error=f"jailbreak guard: {verdict.reason}"[:500],
+            ),
+        )
+        raise GuardViolation(
+            "This request was blocked by the safety guard "
+            f"(possible prompt-injection / jailbreak: {verdict.reason})."
+        )
 
     async def _gate(
         self, ctx: GatewayContext
@@ -64,6 +118,17 @@ class AIGateway:
         # Raises QuotaExceeded if over budget (before any model capacity spent).
         await self._quota.enforce(ctx, tenant_settings=tenant_settings or {})
         chain = resolve_target_chain(tenant_settings)
+        # Data-egress guardrail: if the tenant is cloud-locked, drop every
+        # non-sovereign target so prompts can NEVER leave our infra — not even
+        # as a failover. Fail closed: if that empties the chain (cloud-only
+        # selection + cloud forbidden), raise rather than silently fall back.
+        if not policy.allow_cloud:
+            chain = [t for t in chain if t.sovereign]
+            if not chain:
+                raise PolicyViolation(
+                    "Cloud models are disabled for this tenant (sovereign lock) "
+                    "and no sovereign model is configured."
+                )
         # Never "fail over" to a target that can't work (e.g. OpenAI chosen but
         # no API key configured); keep order. If somehow none are configured,
         # fall back to the raw chain so the error surfaces honestly.
@@ -83,6 +148,7 @@ class AIGateway:
         the error propagates — i.e. "Qwen only" / "OpenAI only" just fail if the
         chosen API is unreachable, while "both" tries Qwen then OpenAI."""
         chain, policy = await self._gate(ctx)
+        await self._screen(ctx, messages, policy)
         prompt = _prompt_text(messages)
         last_exc: Exception | None = None
         for i, target in enumerate(chain):
@@ -150,6 +216,7 @@ class AIGateway:
         emitted — once we've started yielding to the client we can't un-yield, so
         a mid-stream failure propagates."""
         chain, policy = await self._gate(ctx)
+        await self._screen(ctx, messages, policy)
         prompt = _prompt_text(messages)
         last_exc: Exception | None = None
         for i, target in enumerate(chain):
@@ -201,6 +268,75 @@ class AIGateway:
                 ),
             )
             return
+        if last_exc is not None:
+            raise last_exc
+        raise LLMError("No usable model target for this request")
+
+    async def complete_with_tools(
+        self,
+        ctx: GatewayContext,
+        messages: list[dict],
+        *,
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ):
+        """Governed tool-calling for the agent loop.
+
+        Takes raw OpenAI-format message dicts (so the agent can carry
+        assistant tool_calls + tool results across turns) and returns the
+        assistant message object. Goes through the SAME gate as `complete`
+        (quota + policy + sovereign-lock + routing/failover) and meters each
+        call — so the agent is governed like every other path, not a bypass."""
+        chain, policy = await self._gate(ctx)
+        await self._screen(ctx, messages, policy)
+        prompt = "\n".join(str(m.get("content") or "") for m in messages)
+        last_exc: Exception | None = None
+        for i, target in enumerate(chain):
+            try:
+                self._policy.enforce(policy, model=target.model)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            adapter = get_llm_for_target(target)
+            if not hasattr(adapter, "chat_with_tools"):
+                last_exc = LLMError(
+                    f"target {target.name} adapter does not support tool-calling"
+                )
+                continue
+            capped = self._policy.effective_max_tokens(policy, max_tokens)
+            t0 = perf_counter()
+            try:
+                msg = await adapter.chat_with_tools(
+                    messages, tools=tools, model=target.model,
+                    temperature=temperature, max_tokens=capped,
+                )
+            except LLMError as exc:
+                await record_usage(
+                    ctx,
+                    usage_from_text(
+                        prompt=prompt, completion="", provider=target.provider,
+                        model=target.model, latency_ms=(perf_counter() - t0) * 1000,
+                        status="error", error=str(exc)[:500],
+                    ),
+                )
+                last_exc = exc
+                if i < len(chain) - 1:
+                    log.warning(
+                        "gateway: tool target %s failed (%s) — failing over to %s",
+                        target.name, exc, chain[i + 1].name,
+                    )
+                    continue
+                raise
+            await record_usage(
+                ctx,
+                usage_from_text(
+                    prompt=prompt, completion=getattr(msg, "content", "") or "",
+                    provider=target.provider, model=target.model,
+                    latency_ms=(perf_counter() - t0) * 1000,
+                ),
+            )
+            return msg
         if last_exc is not None:
             raise last_exc
         raise LLMError("No usable model target for this request")
