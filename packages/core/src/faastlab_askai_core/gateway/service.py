@@ -215,3 +215,71 @@ class AIGateway:
         if last_exc is not None:
             raise last_exc
         raise LLMError("No usable model target for this request")
+
+    async def complete_with_tools(
+        self,
+        ctx: GatewayContext,
+        messages: list[dict],
+        *,
+        tools: list[dict] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+    ):
+        """Governed tool-calling for the agent loop.
+
+        Takes raw OpenAI-format message dicts (so the agent can carry
+        assistant tool_calls + tool results across turns) and returns the
+        assistant message object. Goes through the SAME gate as `complete`
+        (quota + policy + sovereign-lock + routing/failover) and meters each
+        call — so the agent is governed like every other path, not a bypass."""
+        chain, policy = await self._gate(ctx)
+        prompt = "\n".join(str(m.get("content") or "") for m in messages)
+        last_exc: Exception | None = None
+        for i, target in enumerate(chain):
+            try:
+                self._policy.enforce(policy, model=target.model)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            adapter = get_llm_for_target(target)
+            if not hasattr(adapter, "chat_with_tools"):
+                last_exc = LLMError(
+                    f"target {target.name} adapter does not support tool-calling"
+                )
+                continue
+            capped = self._policy.effective_max_tokens(policy, max_tokens)
+            t0 = perf_counter()
+            try:
+                msg = await adapter.chat_with_tools(
+                    messages, tools=tools, model=target.model,
+                    temperature=temperature, max_tokens=capped,
+                )
+            except LLMError as exc:
+                await record_usage(
+                    ctx,
+                    usage_from_text(
+                        prompt=prompt, completion="", provider=target.provider,
+                        model=target.model, latency_ms=(perf_counter() - t0) * 1000,
+                        status="error", error=str(exc)[:500],
+                    ),
+                )
+                last_exc = exc
+                if i < len(chain) - 1:
+                    log.warning(
+                        "gateway: tool target %s failed (%s) — failing over to %s",
+                        target.name, exc, chain[i + 1].name,
+                    )
+                    continue
+                raise
+            await record_usage(
+                ctx,
+                usage_from_text(
+                    prompt=prompt, completion=getattr(msg, "content", "") or "",
+                    provider=target.provider, model=target.model,
+                    latency_ms=(perf_counter() - t0) * 1000,
+                ),
+            )
+            return msg
+        if last_exc is not None:
+            raise last_exc
+        raise LLMError("No usable model target for this request")

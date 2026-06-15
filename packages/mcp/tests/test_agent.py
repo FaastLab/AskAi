@@ -36,7 +36,7 @@ class _FakeLLM:
 
 
 @pytest.fixture(autouse=True)
-def _stub_tools_and_ledger(monkeypatch):
+def _stub_tools(monkeypatch):
     monkeypatch.setattr(
         agent_mod,
         "tool_specs",
@@ -51,11 +51,8 @@ def _stub_tools_and_ledger(monkeypatch):
             }
         ],
     )
-
-    async def _fake_record(ctx, usage):
-        return None
-
-    monkeypatch.setattr(agent_mod, "record_usage", _fake_record)
+    # The agent no longer meters usage itself — the gateway does, per call. Tests
+    # inject a fake `llm`, so no gateway/ledger stubbing is needed here.
 
 
 async def test_agent_calls_tool_then_answers(monkeypatch) -> None:
