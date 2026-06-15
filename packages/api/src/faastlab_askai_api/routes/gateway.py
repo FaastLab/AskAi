@@ -444,6 +444,7 @@ class PolicyView(BaseModel):
     enabled: bool
     allowed_models: list[str]  # empty = any model allowed
     max_tokens_per_request: int  # 0 = no cap
+    allow_cloud: bool  # False = sovereign lock (no cloud egress)
     available_models: list[str]  # suggestions for the allow-list UI
 
 
@@ -451,6 +452,7 @@ class PolicyUpdate(BaseModel):
     enabled: bool = True
     allowed_models: list[str] = Field(default_factory=list)
     max_tokens_per_request: int = Field(default=0, ge=0, le=100000)
+    allow_cloud: bool = True
 
 
 def _available_models() -> list[str]:
@@ -479,6 +481,7 @@ async def get_policy(
         enabled=p.enabled,
         allowed_models=list(p.allowed_models),
         max_tokens_per_request=p.max_tokens_per_request,
+        allow_cloud=p.allow_cloud,
         available_models=_available_models(),
     )
 
@@ -501,6 +504,7 @@ async def update_policy(
             "enabled": body.enabled,
             "allowed_models": [m.strip() for m in body.allowed_models if m.strip()],
             "max_tokens_per_request": body.max_tokens_per_request,
+            "allow_cloud": body.allow_cloud,
         }
         settings["gateway"] = gateway_cfg
         tenant.settings = settings  # reassign so SQLAlchemy flags the JSONB dirty
@@ -518,6 +522,7 @@ async def update_policy(
         enabled=p.enabled,
         allowed_models=list(p.allowed_models),
         max_tokens_per_request=p.max_tokens_per_request,
+        allow_cloud=p.allow_cloud,
         available_models=_available_models(),
     )
 

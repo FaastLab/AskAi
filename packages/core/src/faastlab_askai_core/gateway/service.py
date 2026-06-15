@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from faastlab_askai_core.adapters import LLMMessage
-from faastlab_askai_core.exceptions import LLMError
+from faastlab_askai_core.exceptions import LLMError, PolicyViolation
 from faastlab_askai_core.factory import get_llm_for_target
 from faastlab_askai_core.gateway.context import GatewayContext
 from faastlab_askai_core.gateway.policy import Policy, PolicyEngine, resolve_policy
@@ -64,6 +64,17 @@ class AIGateway:
         # Raises QuotaExceeded if over budget (before any model capacity spent).
         await self._quota.enforce(ctx, tenant_settings=tenant_settings or {})
         chain = resolve_target_chain(tenant_settings)
+        # Data-egress guardrail: if the tenant is cloud-locked, drop every
+        # non-sovereign target so prompts can NEVER leave our infra — not even
+        # as a failover. Fail closed: if that empties the chain (cloud-only
+        # selection + cloud forbidden), raise rather than silently fall back.
+        if not policy.allow_cloud:
+            chain = [t for t in chain if t.sovereign]
+            if not chain:
+                raise PolicyViolation(
+                    "Cloud models are disabled for this tenant (sovereign lock) "
+                    "and no sovereign model is configured."
+                )
         # Never "fail over" to a target that can't work (e.g. OpenAI chosen but
         # no API key configured); keep order. If somehow none are configured,
         # fall back to the raw chain so the error surfaces honestly.
