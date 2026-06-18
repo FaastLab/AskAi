@@ -21,6 +21,7 @@ import re
 from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from html import unescape as _html_unescape
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx
@@ -90,7 +91,10 @@ def extract_title(html: str) -> str | None:
     if not m:
         return None
     title = re.sub(r"\s+", " ", m.group(1)).strip()
-    return title or None
+    # Decode HTML entities so titles read "Handbook & Rulebook", not
+    # "Handbook &amp; Rulebook". (Param is named `html`, so we use the
+    # aliased unescape import.)
+    return _html_unescape(title) or None
 
 
 def should_follow(url: str, cfg: WebCrawlConfig, depth: int) -> bool:
