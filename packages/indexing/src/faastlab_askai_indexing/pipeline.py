@@ -142,7 +142,15 @@ class IngestionPipeline:
                 content_type = source.content_type or detect_content_type(source.filename)
                 parser = get_parser(content_type)
                 parsed = parser.parse(source.data, filename=source.filename)
-                if doc.title in (None, "") and parsed.title:
+                # Prefer the parsed title (a PDF's embedded /Title or an HTML
+                # <title>) over a placeholder that's just the filename or URL.
+                # Connectors seed doc.title with the filename (e.g. "DEPP.pdf")
+                # before parsing, so unless we treat that as a placeholder, a
+                # crawled or uploaded PDF keeps the filename instead of its real
+                # title. A genuine connector-supplied title (e.g. the watcher's
+                # RSS title) is NOT in this set, so it's preserved.
+                _placeholder_title = (None, "", source.filename, source.source_uri)
+                if doc.title in _placeholder_title and parsed.title:
                     doc.title = parsed.title
 
                 # Mark superseded regulatory documents so search can exclude
