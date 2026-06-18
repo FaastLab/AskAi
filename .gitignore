@@ -40,7 +40,9 @@ env/
 ENV/
 
 # ---- uv ----
-uv.lock
+# uv.lock IS committed on purpose: the Docker build runs `uv sync --frozen`,
+# which needs the lockfile present in a fresh clone. Ignoring it broke every
+# clean build (uv sync --frozen with no lock -> exit 2).
 .python-version
 
 # ---- Test / coverage ----
