@@ -21,6 +21,7 @@ Idempotency:
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -49,6 +50,43 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 EMBED_BATCH_SIZE = 64
+
+# PDFs exported from Office apps set their /Title to "Microsoft Word - <name>"
+# (or PowerPoint/Excel) — strip that so the title reads like a real document name.
+_OFFICE_TITLE_PREFIX = re.compile(
+    r"^Microsoft (?:Word|PowerPoint|Excel)\s*-\s*", re.IGNORECASE
+)
+# Authoring-tool placeholder titles (e.g. "Untitled-1", "Document 2") that are
+# worse than the filename — reject them so we fall back to the filename instead.
+_JUNK_TITLE = re.compile(
+    r"^(?:untitled|document|presentation|workbook|book|slide)[\s\-_]*\d*$",
+    re.IGNORECASE,
+)
+# Trailing file extension that sometimes ends up inside the title.
+_TITLE_EXT = re.compile(r"\.(?:pdf|docx?|pptx?|xlsx?|txt|md|html?)$", re.IGNORECASE)
+
+
+def _clean_doc_title(title: str | None) -> str | None:
+    """Tidy a raw document title or return None if it's junk.
+
+    Strips the "Microsoft Word - " prefix Office-exported PDFs carry and any
+    trailing file extension, then rejects authoring-tool placeholders like
+    "Untitled-1" so the caller can fall back to the filename.
+    """
+    if not title:
+        return None
+    cleaned = _OFFICE_TITLE_PREFIX.sub("", title).strip()
+    cleaned = _TITLE_EXT.sub("", cleaned).strip()
+    if not cleaned or _JUNK_TITLE.match(cleaned):
+        return None
+    return cleaned
+
+
+def _filename_stem(name: str | None) -> str | None:
+    """Filename without its directory or extension (the last-resort title)."""
+    if not name:
+        return None
+    return name.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip() or None
 
 
 @dataclass(slots=True)
@@ -150,8 +188,15 @@ class IngestionPipeline:
                 # title. A genuine connector-supplied title (e.g. the watcher's
                 # RSS title) is NOT in this set, so it's preserved.
                 _placeholder_title = (None, "", source.filename, source.source_uri)
-                if doc.title in _placeholder_title and parsed.title:
-                    doc.title = parsed.title
+                if doc.title in _placeholder_title:
+                    # Clean the parsed title (strip "Microsoft Word - ", reject
+                    # "Untitled-1" junk); fall back to the filename stem so a doc
+                    # with no usable embedded title still reads cleanly.
+                    best = _clean_doc_title(parsed.title) or _filename_stem(
+                        source.filename
+                    )
+                    if best:
+                        doc.title = best
 
                 # Mark superseded regulatory documents so search can exclude
                 # them by default. Heuristics: text markers + URL pattern.
