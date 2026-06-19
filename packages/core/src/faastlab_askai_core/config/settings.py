@@ -142,6 +142,25 @@ class Settings(BaseSettings):
     vector_hnsw_m: int = 16
     vector_hnsw_ef_construction: int = 64
 
+    # ---- Retrieval backend ----
+    # Which Retriever serves SearchService. 'hybrid' = today's pgvector vector +
+    # Postgres keyword + RRF (the default — nothing changes). 'typesense' routes
+    # retrieval to Typesense (keyword + vector + native hybrid + facets). The
+    # switch is what keeps the Typesense rollout safe: flip back to 'hybrid' to
+    # instantly revert. Postgres remains the system-of-record either way.
+    retriever: Literal["hybrid", "typesense"] = "hybrid"
+    # Typesense connection (used when retriever='typesense', and for dual-write
+    # indexing). URL includes scheme + port, e.g. http://typesense:8108.
+    typesense_url: str | None = None
+    typesense_api_key: str | None = None
+    # Collection that holds chunks. One shared collection with a tenant_id field
+    # + scoped search keys for isolation (see TypesenseRetriever).
+    typesense_collection: str = "chunks"
+    # Mirror writes into Typesense during ingestion even while retriever='hybrid'
+    # so the index is warm/back-filled before you flip the switch. Best-effort:
+    # a Typesense write failure never breaks ingestion into Postgres.
+    typesense_dual_write: bool = False
+
     # ---- Auth ----
     auth_provider: AuthProvider = "jwt"
     jwt_secret: str = Field(default="change-me-in-prod-please-use-a-long-random-string")

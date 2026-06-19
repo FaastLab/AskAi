@@ -32,6 +32,29 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Typesense — keyword + vector (hybrid) search engine with built-in facets.
+  # Optional: the app only talks to it when RETRIEVER=typesense; with the default
+  # RETRIEVER=hybrid it sits idle, so it's safe to run everywhere. Vectors come
+  # from our sovereign bge-m3 embeddings (bring-your-own — no cloud embedder).
+  typesense:
+    image: typesense/typesense:27.1
+    container_name: askai-typesense
+    command:
+      - "--data-dir=/data"
+      - "--api-key=${TYPESENSE_API_KEY:-askai-typesense-dev}"
+      - "--enable-cors"
+    ports:
+      - "${TYPESENSE_PORT:-8108}:8108"
+    volumes:
+      - typesense-data:/data
+    healthcheck:
+      # The image ships curl; /health returns {"ok":true}.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8108/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   minio:
     image: minio/minio:latest
     container_name: askai-minio
@@ -84,6 +107,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      typesense:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -92,6 +117,8 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
       MINIO_ENDPOINT: http://minio:9000
+      TYPESENSE_URL: ${TYPESENSE_URL_INTERNAL:-http://typesense:8108}
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-askai-typesense-dev}
     # ports:  # closed — internal only, accessed via NPM through askai-web
     #   - "${API_PORT:-8000}:8000"
     command:
@@ -116,6 +143,8 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_INTERNAL:-redis://redis:6379/1}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_INTERNAL:-redis://redis:6379/2}
       MINIO_ENDPOINT: http://minio:9000
+      TYPESENSE_URL: ${TYPESENSE_URL_INTERNAL:-http://typesense:8108}
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-askai-typesense-dev}
     command:
       - celery
       - -A
@@ -182,6 +211,7 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
+  typesense-data:
 
 networks:
   default:

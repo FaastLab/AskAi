@@ -13,6 +13,9 @@ dependencies = [
   "asyncpg>=0.30",
   "pgvector>=0.3",
   "tenacity>=9.0",
+  # Typesense client (retriever='typesense'). Pure-Python, tiny — safe to ship
+  # even on pgvector deployments that never construct the Typesense retriever.
+  "typesense>=0.21",
   # Reranker stack. bge-reranker (BAAI, MIT) is the default OSS path —
   # 100% open source, runs locally. sentence-transformers brings torch
   # (~1GB on first install). Cohere is an optional managed alternative
