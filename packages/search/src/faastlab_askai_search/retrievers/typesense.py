@@ -24,9 +24,9 @@ from uuid import UUID
 from faastlab_askai_core.adapters import EmbeddingsAdapter
 from faastlab_askai_core.config import Settings, get_settings
 from faastlab_askai_core.factory import get_embeddings
+from faastlab_askai_core.typesense_client import get_typesense_client
 from faastlab_askai_search.filters import SearchFilters
 from faastlab_askai_search.retrievers.base import RetrievedChunk
-from faastlab_askai_search.typesense_client import get_typesense_client
 
 
 class TypesenseRetriever:

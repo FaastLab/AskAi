@@ -957,6 +957,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
     { name = "structlog" },
+    { name = "typesense" },
 ]
 
 [package.metadata]
@@ -968,6 +969,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.4" },
+    { name = "typesense", specifier = ">=0.21" },
 ]
 
 [[package]]
@@ -1085,7 +1087,6 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tenacity" },
     { name = "torch" },
-    { name = "typesense" },
 ]
 
 [package.optional-dependencies]
@@ -1115,7 +1116,6 @@ requires-dist = [
     { name = "tenacity", specifier = ">=9.0" },
     { name = "torch", specifier = ">=2.5" },
     { name = "torch", marker = "extra == 'bge-reranker'", specifier = ">=2.5" },
-    { name = "typesense", specifier = ">=0.21" },
 ]
 provides-extras = ["bge-reranker"]
 

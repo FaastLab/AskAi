@@ -14,6 +14,10 @@ dependencies = [
   "alembic>=1.14",
   "pgvector>=0.3",
   "structlog>=24.4",
+  # Typesense client lives in core so BOTH the search retriever and the indexing
+  # pipeline (dual-write) can use it without a circular dep. Tiny, pure-Python;
+  # unused on pgvector-only deployments.
+  "typesense>=0.21",
 ]
 
 [build-system]

@@ -20,6 +20,8 @@ Idempotency:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -37,7 +39,6 @@ from faastlab_askai_core.db import Chunk as DbChunk
 from faastlab_askai_core.db import Document as DbDocument
 from faastlab_askai_core.db import IngestionJob, get_sessionmaker
 from faastlab_askai_core.factory import get_embeddings, get_storage, get_vector_store
-
 from faastlab_askai_indexing.chunkers.router import get_chunker
 from faastlab_askai_indexing.connectors.base import SourceDocument
 from faastlab_askai_indexing.hashing import content_hash
@@ -120,12 +121,12 @@ class IngestionPipeline:
 
     # ---- Public ----------------------------------------------------------
 
-    async def ingest(self, connector: "Connector") -> AsyncIterator[IngestionResult]:
+    async def ingest(self, connector: Connector) -> AsyncIterator[IngestionResult]:
         """Run the connector to completion, yielding one result per doc."""
         async for source in connector.iter_documents():
             try:
                 yield await self.ingest_one(source)
-            except Exception as exc:  # noqa: BLE001 — capture per-doc failures
+            except Exception as exc:
                 log.exception("Ingestion failed for %s", source.source_uri)
                 yield IngestionResult(
                     document_id=uuid4(),
@@ -163,7 +164,7 @@ class IngestionPipeline:
                         tenant_id=self._tenant_id, document_id=doc.id
                     )
                     await session.execute(
-                        DbChunk.__table__.delete().where(  # noqa: SLF001
+                        DbChunk.__table__.delete().where(
                             (DbChunk.document_id == doc.id)
                             & (DbChunk.tenant_id == self._tenant_id)
                         )
@@ -383,4 +384,58 @@ class IngestionPipeline:
                 row_obj.embedding = vec
             await session.flush()
 
+        # Mirror the freshly-embedded chunks into Typesense (dual-write) so a
+        # fresh ingestion populates the Typesense index in the same pass — no
+        # separate backfill needed. Best-effort: Postgres is the source of truth.
+        await self._typesense_dual_write(doc, db_rows)
+
         return len(db_rows)
+
+    async def _typesense_dual_write(self, doc: DbDocument, db_rows: list) -> None:
+        """Index chunks into Typesense if dual-write (or retriever=typesense) is
+        on. Never raises — a Typesense hiccup must not fail Postgres ingestion."""
+        s = self._settings
+        if not (s.typesense_dual_write or s.retriever == "typesense"):
+            return
+        if not (s.typesense_url and s.typesense_api_key):
+            return
+        try:
+            from faastlab_askai_core.typesense_client import (
+                chunk_to_document,
+                ensure_collection,
+                get_typesense_client,
+            )
+
+            client = get_typesense_client(s)
+            eff = int(doc.effective_date.timestamp()) if doc.effective_date else None
+            docs = [
+                chunk_to_document(
+                    chunk_id=str(r.id),
+                    tenant_id=str(self._tenant_id),
+                    document_id=str(doc.id),
+                    content=r.content,
+                    embedding=list(r.embedding),
+                    document_title=doc.title,
+                    doc_type=doc.doc_type,
+                    is_active=bool(doc.is_active),
+                    page_number=r.page_number,
+                    section_path=r.section_path,
+                    effective_date=eff,
+                )
+                for r in db_rows
+            ]
+
+            def _index() -> None:
+                ensure_collection(client, s.typesense_collection, self._embeddings.dim)
+                coll = client.collections[s.typesense_collection]
+                # Chunk ids are new each ingest, so drop this document's old
+                # chunks first — otherwise a re-ingest leaves stale rows behind.
+                # Nothing to delete on first ingest, hence suppress.
+                with contextlib.suppress(Exception):
+                    coll.documents.delete({"filter_by": f"document_id:=`{doc.id}`"})
+                coll.documents.import_(docs, {"action": "upsert"})
+
+            await asyncio.to_thread(_index)
+            log.info("typesense: indexed %d chunks for doc %s", len(docs), doc.id)
+        except Exception as exc:
+            log.warning("typesense dual-write failed for doc %s: %s", doc.id, exc)
