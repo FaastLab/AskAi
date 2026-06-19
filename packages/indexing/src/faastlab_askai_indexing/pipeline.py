@@ -90,6 +90,56 @@ def _filename_stem(name: str | None) -> str | None:
     return name.rsplit("/", 1)[-1].rsplit(".", 1)[0].strip() or None
 
 
+# FCA Handbook sourcebooks are ingested as PDFs named by their module CODE
+# (REC.pdf, CREDS.pdf …) and carry no embedded /Title, so the title falls back
+# to the bare code. Map the codes to their official module names so search
+# results read like documents, not abbreviations.
+_FCA_SOURCEBOOK_TITLES: dict[str, str] = {
+    "PRIN": "Principles for Businesses",
+    "SYSC": "Senior Management Arrangements, Systems and Controls",
+    "COND": "Threshold Conditions",
+    "APER": "Statements of Principle and Code of Practice for Approved Persons",
+    "COCON": "Code of Conduct",
+    "FIT": "Fit and Proper test for Employees and Senior Personnel",
+    "TC": "Training and Competence",
+    "GEN": "General Provisions",
+    "FEES": "Fees Manual",
+    "GENPRU": "General Prudential sourcebook",
+    "MIPRU": "Prudential sourcebook for Mortgage and Home Finance Firms, and Insurance Intermediaries",
+    "COBS": "Conduct of Business sourcebook",
+    "ICOBS": "Insurance: Conduct of Business sourcebook",
+    "MCOB": "Mortgages and Home Finance: Conduct of Business sourcebook",
+    "BCOBS": "Banking: Conduct of Business sourcebook",
+    "CONC": "Consumer Credit sourcebook",
+    "CASS": "Client Assets sourcebook",
+    "MAR": "Market Conduct sourcebook",
+    "SUP": "Supervision Manual",
+    "DEPP": "Decision Procedure and Penalties Manual",
+    "DISP": "Dispute Resolution: Complaints",
+    "COMP": "Compensation sourcebook",
+    "COLL": "Collective Investment Schemes sourcebook",
+    "FUND": "Investment Funds sourcebook",
+    "DTR": "Disclosure Guidance and Transparency Rules sourcebook",
+    "ESG": "Environmental, Social and Governance sourcebook",
+    "PERG": "Perimeter Guidance Manual",
+    "FCG": "Financial Crime Guide",
+    "ENFG": "Enforcement Guide",
+    "CTPS": "Critical Third Parties sourcebook",
+    "UKLR": "UK Listing Rules sourcebook",
+    "CREDS": "Credit Unions New sourcebook",
+    "REC": "Recognised Investment Exchanges sourcebook",
+}
+
+
+def _expand_sourcebook_title(title: str | None) -> str | None:
+    """If `title` is a bare FCA sourcebook code, expand it to "Full Name (CODE)".
+    Anything not in the map (real titles, other docs) passes through unchanged."""
+    if not title:
+        return title
+    full = _FCA_SOURCEBOOK_TITLES.get(title.strip().upper())
+    return f"{full} ({title.strip().upper()})" if full else title
+
+
 @dataclass(slots=True)
 class IngestionResult:
     document_id: UUID
@@ -196,6 +246,9 @@ class IngestionPipeline:
                     best = _clean_doc_title(parsed.title) or _filename_stem(
                         source.filename
                     )
+                    # Expand bare FCA sourcebook codes (REC -> "Recognised
+                    # Investment Exchanges sourcebook (REC)").
+                    best = _expand_sourcebook_title(best)
                     if best:
                         doc.title = best
 
