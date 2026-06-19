@@ -12,6 +12,7 @@ import { DocumentsPage } from "./pages/Documents";
 import { FilesPage } from "./pages/Files";
 import { LoginPage } from "./pages/Login";
 import { McpPage } from "./pages/Mcp";
+import { SearchPage } from "./pages/Search";
 import { PromptsPage } from "./pages/Prompts";
 import { SecurityPage } from "./pages/Security";
 import { SignupPage } from "./pages/Signup";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/chat/:sessionId" element={<RequireAuth><ChatPage /></RequireAuth>} />
         <Route path="/agent" element={<RequireAuth><AgentPage /></RequireAuth>} />
         <Route path="/training" element={<RequireAuth><TrainingPage /></RequireAuth>} />
+        <Route path="/search" element={<RequireAuth><SearchPage /></RequireAuth>} />
         <Route path="/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/documents/:documentId" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
         <Route path="/files" element={<RequireAuth><FilesPage /></RequireAuth>} />

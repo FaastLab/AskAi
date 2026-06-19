@@ -4,12 +4,10 @@ import { Sidebar } from "../components/Sidebar";
 import {
   getConfig,
   getDocumentFileUrl,
-  instantSearch,
   listDocumentCounts,
   listDocuments,
   searchChunks,
   type DocumentRecord,
-  type InstantCounts,
   type PublicConfig,
   type SearchHit,
 } from "../lib/api";
@@ -67,26 +65,6 @@ export function DocumentsPage() {
     selectedFromUrl ?? null
   );
   const searchAbortRef = useRef<AbortController | null>(null);
-
-  // Live match counts as you type (Typesense, keyword-only, debounced). Powers
-  // the "N matches" hint + makes the regulator chips show match counts while
-  // searching. supported=false on pgvector, so the chips fall back to browse
-  // counts and the hint hides.
-  const [liveCounts, setLiveCounts] = useState<InstantCounts | null>(null);
-  const liveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (liveDebounce.current) clearTimeout(liveDebounce.current);
-    if (!query.trim()) {
-      setLiveCounts(null);
-      return;
-    }
-    liveDebounce.current = setTimeout(() => {
-      instantSearch(query).then(setLiveCounts);
-    }, 150);
-    return () => {
-      if (liveDebounce.current) clearTimeout(liveDebounce.current);
-    };
-  }, [query]);
 
   // Load config + document list on mount.
   useEffect(() => {
@@ -310,34 +288,13 @@ export function DocumentsPage() {
               {latencyMs.toFixed(0)} ms
             </div>
           )}
-          {/* Live count as you type (before submitting the full ranked search) */}
-          {mode === "browse" && query.trim() && liveCounts?.supported && (
-            <div className="mt-2 text-xs text-ink-500">
-              <span className="font-semibold text-ink-800">
-                {liveCounts.found.toLocaleString()}
-              </span>{" "}
-              match{liveCounts.found === 1 ? "" : "es"} — press Enter for ranked
-              results
-            </div>
-          )}
         </header>
 
         {/* Category chips — regulator filter */}
         <div className="border-b border-slate-200 bg-white px-6 py-2 flex items-center gap-2 overflow-x-auto">
           {CHIPS.map((c) => {
-            // While a query is active and Typesense is on, show LIVE match
-            // counts per regulator; otherwise the browse document counts.
-            const liveFacet =
-              query.trim() && liveCounts?.supported
-                ? liveCounts.facets?.doc_type ?? {}
-                : null;
-            const count = liveFacet
-              ? c.key === "all"
-                ? liveCounts!.found
-                : liveFacet[c.key] ?? 0
-              : c.key === "all"
-                ? counts.total ?? 0
-                : counts[c.key] ?? 0;
+            const count =
+              c.key === "all" ? counts.total ?? 0 : counts[c.key] ?? 0;
             const active = activeChip === c.key;
             const disabled = c.key !== "all" && count === 0;
             return (
@@ -384,17 +341,7 @@ export function DocumentsPage() {
               />
             ) : (
               <SearchList
-                groups={
-                  // Clicking a regulator chip narrows the grouped results to
-                  // that doc_type (client-side, no re-fetch).
-                  activeChip === "all"
-                    ? hitsByDoc
-                    : hitsByDoc.filter((g) =>
-                        activeChip === "uploads"
-                          ? g.doc?.source_uri.startsWith("upload://")
-                          : g.doc?.doc_type === activeChip,
-                      )
-                }
+                groups={hitsByDoc}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
