@@ -1320,8 +1320,12 @@ export type SearchResult = {
 /** Hybrid search (vector + BM25 + rerank) — same engine the chat uses. */
 export async function searchChunks(
   query: string,
-  opts?: { k?: number; onlyActive?: boolean; rerank?: boolean }
+  opts?: { k?: number; onlyActive?: boolean; rerank?: boolean; docType?: string }
 ): Promise<SearchResult | null> {
+  const filters: Record<string, unknown> = {
+    only_active: opts?.onlyActive ?? true,
+  };
+  if (opts?.docType) filters.doc_types = [opts.docType];
   const r = await fetch("/v1/search", {
     method: "POST",
     headers: {
@@ -1331,10 +1335,31 @@ export async function searchChunks(
     body: JSON.stringify({
       query,
       k: opts?.k ?? 10,
-      filters: { only_active: opts?.onlyActive ?? true },
+      filters,
       rerank: opts?.rerank ?? true,
     }),
   });
   if (!r.ok) return null;
   return (await r.json()) as SearchResult;
+}
+
+// ---- Search-as-you-type counts (Typesense) ---------------------------------
+
+export type InstantCounts = {
+  found: number;
+  facets: Record<string, Record<string, number>>;
+  supported: boolean; // false on pgvector — hide the live counter
+};
+
+/** Live match-count + doc_type facet counts for the search bar. Cheap
+ * (keyword-only, no documents) — safe to call on every keystroke. */
+export async function instantSearch(
+  q: string,
+  docType?: string,
+): Promise<InstantCounts> {
+  const qs = new URLSearchParams({ q });
+  if (docType) qs.set("doc_type", docType);
+  const r = await fetch(`/v1/search/instant?${qs}`, { headers: allAuthHeaders() });
+  if (!r.ok) return { found: 0, facets: {}, supported: false };
+  return (await r.json()) as InstantCounts;
 }

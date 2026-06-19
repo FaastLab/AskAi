@@ -116,6 +116,28 @@ async def test_retrieve_builds_hybrid_query_and_maps_hits() -> None:
     assert facets == {"doc_type": {"guidance": 1}}
 
 
+async def test_instant_counts_is_keyword_only_and_returns_found() -> None:
+    tid = uuid4()
+    result = {
+        "found": 423,
+        "facet_counts": [
+            {"field_name": "doc_type", "counts": [
+                {"value": "guidance", "count": 210}, {"value": "policy", "count": 88}]}
+        ],
+    }
+    captured: dict = {}
+    found, facets = await _retriever(result, captured).instant_counts(
+        tenant_id=tid, query="capital"
+    )
+    assert found == 423
+    assert facets == {"doc_type": {"guidance": 210, "policy": 88}}
+    # Keyword-only + counts-only: no vector_query, no documents fetched.
+    assert "vector_query" not in captured
+    assert captured["per_page"] == 0
+    assert captured["facet_by"] == "doc_type"
+    assert f"tenant_id:=[`{tid}`]" in captured["filter_by"]
+
+
 async def test_retrieve_passes_tenant_union_for_public_corpus() -> None:
     own, public = uuid4(), uuid4()
     captured: dict = {}

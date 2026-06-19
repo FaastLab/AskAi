@@ -104,6 +104,38 @@ class TypesenseRetriever:
         return hits, facets
 
 
+    async def instant_counts(
+        self,
+        *,
+        tenant_id: UUID | list[UUID],
+        query: str,
+        filters: SearchFilters | None = None,
+        facet_by: str = "doc_type",
+    ) -> tuple[int, dict[str, dict[str, int]]]:
+        """Search-as-you-type counts: total `found` + facet counts, KEYWORD-ONLY.
+
+        No vector query (so no per-keystroke embedding) and `per_page=0` (no
+        documents) — Typesense answers in a few ms, which is what makes the live
+        "N matches" number safe to fire on every keystroke.
+        """
+        filters = filters or SearchFilters()
+        tenant_ids = list(tenant_id) if isinstance(tenant_id, list) else [tenant_id]
+        params: dict[str, Any] = {
+            "q": query or "*",
+            "query_by": "content,document_title",
+            "filter_by": _build_filter_by(tenant_ids, filters),
+            "per_page": 0,  # counts only — don't fetch documents
+            "facet_by": facet_by,
+            "max_facet_values": 50,
+        }
+
+        def _do_search() -> dict[str, Any]:
+            return self._client.collections[self._collection].documents.search(params)
+
+        result = await asyncio.to_thread(_do_search)
+        return int(result.get("found", 0)), _parse_facets(result.get("facet_counts", []))
+
+
 def _q(value: str) -> str:
     """Backtick-quote a filter value so ids / strings with separators are safe."""
     return "`" + str(value).replace("`", "") + "`"

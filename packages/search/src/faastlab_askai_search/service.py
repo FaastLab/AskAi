@@ -174,6 +174,33 @@ class SearchService:
         )
         return apply_feedback_nudge(hits, signals)
 
+    # ---- Search-as-you-type counts (Typesense only) ---------------------
+
+    async def instant_counts(
+        self,
+        *,
+        tenant_id: UUID,
+        query: str,
+        filters: SearchFilters | None = None,
+        include_public_corpus: bool = True,
+    ) -> dict[str, Any]:
+        """Total match count + facet counts for a (partial) query — the live
+        numbers shown while typing. Only the Typesense backend can do this
+        cheaply; on pgvector it returns supported=False so the UI hides the
+        counter rather than running an expensive query per keystroke."""
+        retriever = self._retriever
+        if not hasattr(retriever, "instant_counts"):
+            return {"found": 0, "facets": {}, "supported": False}
+        tenant_ids: UUID | list[UUID]
+        if include_public_corpus:
+            tenant_ids = await visible_tenant_ids(tenant_id)
+        else:
+            tenant_ids = [tenant_id]
+        found, facets = await retriever.instant_counts(
+            tenant_id=tenant_ids, query=query, filters=filters
+        )
+        return {"found": found, "facets": facets, "supported": True}
+
     # ---- Convenience for the API layer (Phase 6) ------------------------
 
     async def search_as_dicts(

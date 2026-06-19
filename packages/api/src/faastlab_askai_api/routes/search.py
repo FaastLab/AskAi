@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from faastlab_askai_api.audit_helper import record_action
+from faastlab_askai_api.middleware.principal import get_principal
 from faastlab_askai_api.middleware.quota import enforce_quota
 from faastlab_askai_api.middleware.trial import require_active_trial_or_subscription
 from faastlab_askai_api.routes.ask import _require_byok_if_configured
@@ -16,6 +18,30 @@ from faastlab_askai_search.service import SearchService
 
 router = APIRouter(tags=["search"])
 _service = SearchService()
+
+
+class InstantCounts(BaseModel):
+    found: int
+    facets: dict[str, dict[str, int]]
+    supported: bool  # False on pgvector — UI hides the live counter
+
+
+@router.get("/search/instant", response_model=InstantCounts)
+async def instant(
+    q: str = "",
+    doc_type: str | None = None,
+    principal: Principal = Depends(get_principal),
+) -> InstantCounts:
+    """Search-as-you-type counts (Typesense). Auth-only and un-metered so it can
+    fire on every keystroke — returns the total match count + doc_type facet
+    counts for the live search bar, not documents."""
+    filters = SearchFilters(only_active=True)
+    if doc_type:
+        filters.doc_types = [doc_type]
+    result = await _service.instant_counts(
+        tenant_id=principal.tenant_id, query=q, filters=filters
+    )
+    return InstantCounts(**result)
 
 
 @router.post("/search", response_model=SearchResult)
