@@ -44,9 +44,26 @@ class _FakeCollections:
         return self._coll
 
 
+class _FakeMultiSearch:
+    """Mimics client.multi_search.perform — captures the inner search params
+    (minus the injected `collection`) and wraps the result like Typesense."""
+
+    def __init__(self, result, captured):
+        self._result = result
+        self._captured = captured
+
+    def perform(self, body, common):
+        params = dict(body["searches"][0])
+        params.pop("collection", None)
+        self._captured.update(params)
+        return {"results": [self._result]}
+
+
 class _FakeClient:
     def __init__(self, result, captured):
+        # documents.search path (instant_counts) + multi_search path (retrieve)
         self.collections = _FakeCollections(result, captured)
+        self.multi_search = _FakeMultiSearch(result, captured)
 
 
 def _retriever(result, captured):

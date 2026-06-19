@@ -89,10 +89,16 @@ class TypesenseRetriever:
             search_params["facet_by"] = facet_by
             search_params["max_facet_values"] = 50
 
+        # Send via /multi_search (POST body) rather than the GET documents.search:
+        # the embedding makes the vector_query far exceed Typesense's 4000-char
+        # GET query-string limit, which 400s. multi_search has no such limit.
         def _do_search() -> dict[str, Any]:
-            return self._client.collections[self._collection].documents.search(
-                search_params
+            resp = self._client.multi_search.perform(
+                {"searches": [{**search_params, "collection": self._collection}]},
+                {},
             )
+            results = resp.get("results") or [{}]
+            return results[0]
 
         result = await asyncio.to_thread(_do_search)
 
