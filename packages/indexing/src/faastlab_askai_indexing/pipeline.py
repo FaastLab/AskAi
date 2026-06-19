@@ -104,40 +104,42 @@ _FCA_SOURCEBOOK_TITLES: dict[str, str] = {
     "TC": "Training and Competence",
     "GEN": "General Provisions",
     "FEES": "Fees Manual",
-    "GENPRU": "General Prudential sourcebook",
-    "MIPRU": "Prudential sourcebook for Mortgage and Home Finance Firms, and Insurance Intermediaries",
-    "COBS": "Conduct of Business sourcebook",
-    "ICOBS": "Insurance: Conduct of Business sourcebook",
-    "MCOB": "Mortgages and Home Finance: Conduct of Business sourcebook",
-    "BCOBS": "Banking: Conduct of Business sourcebook",
-    "CONC": "Consumer Credit sourcebook",
-    "CASS": "Client Assets sourcebook",
-    "MAR": "Market Conduct sourcebook",
+    "GENPRU": "General Prudential",
+    "MIPRU": "Prudential — Mortgage, Home Finance & Insurance Intermediaries",
+    "COBS": "Conduct of Business",
+    "ICOBS": "Insurance: Conduct of Business",
+    "MCOB": "Mortgages and Home Finance: Conduct of Business",
+    "BCOBS": "Banking: Conduct of Business",
+    "CONC": "Consumer Credit",
+    "CASS": "Client Assets",
+    "MAR": "Market Conduct",
     "SUP": "Supervision Manual",
     "DEPP": "Decision Procedure and Penalties Manual",
     "DISP": "Dispute Resolution: Complaints",
-    "COMP": "Compensation sourcebook",
-    "COLL": "Collective Investment Schemes sourcebook",
-    "FUND": "Investment Funds sourcebook",
-    "DTR": "Disclosure Guidance and Transparency Rules sourcebook",
-    "ESG": "Environmental, Social and Governance sourcebook",
+    "COMP": "Compensation",
+    "COLL": "Collective Investment Schemes",
+    "FUND": "Investment Funds",
+    "DTR": "Disclosure Guidance and Transparency Rules",
+    "ESG": "Environmental, Social and Governance",
     "PERG": "Perimeter Guidance Manual",
     "FCG": "Financial Crime Guide",
     "ENFG": "Enforcement Guide",
-    "CTPS": "Critical Third Parties sourcebook",
-    "UKLR": "UK Listing Rules sourcebook",
-    "CREDS": "Credit Unions New sourcebook",
-    "REC": "Recognised Investment Exchanges sourcebook",
+    "CTPS": "Critical Third Parties",
+    "UKLR": "UK Listing Rules",
+    "CREDS": "Credit Unions",
+    "REC": "Recognised Investment Exchanges",
 }
 
 
 def _expand_sourcebook_title(title: str | None) -> str | None:
-    """If `title` is a bare FCA sourcebook code, expand it to "Full Name (CODE)".
-    Anything not in the map (real titles, other docs) passes through unchanged."""
+    """If `title` is a bare FCA sourcebook code, expand it to
+    "FCA Handbook — CODE (Name)". Anything not in the map (real titles, other
+    docs) passes through unchanged."""
     if not title:
         return title
-    full = _FCA_SOURCEBOOK_TITLES.get(title.strip().upper())
-    return f"{full} ({title.strip().upper()})" if full else title
+    code = title.strip().upper()
+    name = _FCA_SOURCEBOOK_TITLES.get(code)
+    return f"FCA Handbook — {code} ({name})" if name else title
 
 
 @dataclass(slots=True)
