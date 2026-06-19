@@ -36,6 +36,18 @@ class SearchOutcome:
     latency_ms: float
 
 
+def _default_retriever() -> Retriever:
+    """Pick the retrieval backend from settings: 'typesense' routes to Typesense
+    (keyword+vector+facets); anything else keeps the pgvector hybrid path. The
+    Typesense import is lazy so pgvector deployments never load the client."""
+    settings = get_settings()
+    if settings.retriever == "typesense":
+        from faastlab_askai_search.retrievers.typesense import TypesenseRetriever
+
+        return TypesenseRetriever(settings=settings)
+    return HybridRetriever()
+
+
 def _default_confidence(hits: list[RetrievedChunk]) -> float:
     """Average of the top-3 reranker scores, clipped to [0, 1]."""
     if not hits:
@@ -61,7 +73,7 @@ class SearchService:
         # tests, or feedback=False at call time to skip the DB read entirely.
         feedback_store: FeedbackStore | None = None,
     ) -> None:
-        self._retriever = retriever or HybridRetriever()
+        self._retriever = retriever or _default_retriever()
         self._reranker = reranker or get_reranker()  # type: ignore[assignment]
         self._confidence_fn = confidence_fn
         self._retrieve_k = retrieve_k
