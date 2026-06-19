@@ -25,3 +25,5 @@ class ChunkRead(BaseModel):
 class ChunkWithScore(ChunkRead):
     score: float
     rank: int | None = None
+    # The parent document's title — so search results can name their source.
+    document_title: str | None = None

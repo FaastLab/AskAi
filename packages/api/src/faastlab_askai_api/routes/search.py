@@ -97,6 +97,7 @@ async def search(
                 metadata=h.metadata,
                 score=h.score,
                 rank=h.rank,
+                document_title=h.document_title,
             )
             for h in outcome.hits
         ],

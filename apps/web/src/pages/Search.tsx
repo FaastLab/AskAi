@@ -145,14 +145,24 @@ export function SearchPage() {
                     key={h.id}
                     className="rounded-lg border border-slate-200 bg-white p-3"
                   >
-                    <div className="flex items-center justify-between text-xs text-ink-500 mb-1">
-                      <span className="font-mono">
-                        {h.section_path || "—"}
-                        {h.page_number ? ` · p.${h.page_number}` : ""}
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      {/* Document title → click through to the document */}
+                      <a
+                        href={`/documents/${h.document_id}`}
+                        className="text-sm font-medium text-ink-900 hover:underline truncate"
+                        title={h.document_title || "Untitled document"}
+                      >
+                        {h.document_title || "Untitled document"}
+                      </a>
+                      <span className="text-xs text-ink-400 shrink-0">
+                        score {h.score.toFixed(3)}
                       </span>
-                      <span>score {h.score.toFixed(3)}</span>
                     </div>
-                    <div className="text-sm text-ink-800 line-clamp-4">{h.content}</div>
+                    <div className="text-[11px] text-ink-500 mb-1">
+                      {h.section_path ? `${h.section_path} · ` : ""}
+                      {h.page_number ? `p.${h.page_number}` : ""}
+                    </div>
+                    <div className="text-sm text-ink-700 line-clamp-4">{h.content}</div>
                   </div>
                 ))}
                 {result.hits.length === 0 && (

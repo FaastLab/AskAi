@@ -1304,6 +1304,7 @@ export async function getDocumentFileUrl(id: string): Promise<string | null> {
 export type SearchHit = {
   id: string;            // chunk id
   document_id: string;
+  document_title: string | null;
   content: string;
   section_path: string | null;
   page_number: number | null;

@@ -47,12 +47,9 @@ services:
       - "${TYPESENSE_PORT:-8108}:8108"
     volumes:
       - typesense-data:/data
-    healthcheck:
-      # The image ships curl; /health returns {"ok":true}.
-      test: ["CMD-SHELL", "curl -sf http://localhost:8108/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+    # No healthcheck: the Typesense image ships neither curl nor wget, so any
+    # HTTP-based check false-fails as "unhealthy" even though it's serving. The
+    # api/worker depend on it with `service_started`, so a check isn't needed.
     restart: unless-stopped
 
   minio:
