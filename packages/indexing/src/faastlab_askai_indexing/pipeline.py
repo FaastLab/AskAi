@@ -142,6 +142,20 @@ def _expand_sourcebook_title(title: str | None) -> str | None:
     return f"FCA Handbook — {code} ({name})" if name else title
 
 
+def _enqueue_summarise(tenant_id: UUID, document_id: UUID) -> None:
+    """Best-effort: queue summary + keyphrases generation for a freshly-ingested
+    document on the worker. The task uses the deployment's DEFAULT LLM (OpenAI on
+    the cloud demo, Qwen on the GPU box — `get_llm()` honours the configured
+    base_url/provider), so the same code works on both servers. Never raises:
+    enrichment is optional, so a broker hiccup must not fail the ingest."""
+    try:
+        from faastlab_askai_summarisation.tasks import summarise_document
+
+        summarise_document.delay(str(tenant_id), str(document_id))
+    except Exception as exc:
+        log.warning("could not enqueue summarisation for %s: %s", document_id, exc)
+
+
 @dataclass(slots=True)
 class IngestionResult:
     document_id: UUID
@@ -278,6 +292,11 @@ class IngestionPipeline:
                 await self._close_job(
                     session, job, doc_id=doc.id, status="success"
                 )
+                # Auto-enrich: queue summary + keyphrases on the worker (opt-out
+                # via SUMMARISE_ON_INGEST). Only when we actually wrote chunks —
+                # there's nothing to summarise otherwise.
+                if self._settings.summarise_on_ingest and chunks_written > 0:
+                    _enqueue_summarise(doc.tenant_id, doc.id)
                 return IngestionResult(
                     document_id=doc.id,
                     job_id=job.id,

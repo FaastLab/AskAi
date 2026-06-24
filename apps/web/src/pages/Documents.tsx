@@ -8,6 +8,7 @@ import {
   listDocumentCounts,
   listDocuments,
   searchChunks,
+  summariseDocument,
   type DocumentRecord,
   type InstantCounts,
   type PublicConfig,
@@ -706,7 +707,7 @@ function DocumentDetail({
         </section>
       )}
 
-      {doc.summary && (
+      {doc.summary ? (
         <section className="mt-6">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
             Summary
@@ -715,6 +716,11 @@ function DocumentDetail({
             {doc.summary}
           </p>
         </section>
+      ) : (
+        // No summary yet — offer to generate it (runs on the worker via the
+        // deployment's default LLM). New uploads auto-summarise; this covers
+        // older docs ingested before that was enabled.
+        <SummariseButton documentId={doc.id} />
       )}
 
       {doc.keyphrases && doc.keyphrases.length > 0 && (
@@ -735,6 +741,36 @@ function DocumentDetail({
         </section>
       )}
     </div>
+  );
+}
+
+function SummariseButton({ documentId }: { documentId: string }) {
+  // idle → click → queued. The job runs async on the worker, so we just confirm
+  // it's queued and tell the user to refresh; we don't poll.
+  const [state, setState] = useState<"idle" | "working" | "queued">("idle");
+  return (
+    <section className="mt-6">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+        Summary
+      </h3>
+      {state === "queued" ? (
+        <p className="mt-2 text-sm text-ink-600">
+          Generating summary &amp; keyphrases on the server — refresh in ~30s.
+        </p>
+      ) : (
+        <button
+          onClick={async () => {
+            setState("working");
+            const ok = await summariseDocument(documentId);
+            setState(ok ? "queued" : "idle");
+          }}
+          disabled={state === "working"}
+          className="mt-2 rounded-md bg-ink-900 px-3 py-2 text-sm text-white hover:bg-ink-700 disabled:opacity-50"
+        >
+          {state === "working" ? "Queuing…" : "Generate summary & keyphrases"}
+        </button>
+      )}
+    </section>
   );
 }
 

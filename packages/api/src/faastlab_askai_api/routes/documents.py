@@ -534,3 +534,80 @@ async def delete_document(
         extra={"document_id": str(document_id), "title": title},
     )
     return {"status": "deleted", "document_id": str(document_id)}
+
+
+# ---- Summary + keyphrases enrichment (worker-backed) -------------------------
+
+
+def _queue_summarise(tenant_id: UUID, document_id: UUID) -> str:
+    """Enqueue the worker's summary+keyphrases task for one document and return
+    its task id. The task uses the deployment's default LLM (OpenAI / Qwen)."""
+    from faastlab_askai_indexing.tasks import celery_app  # the shared app
+
+    result = celery_app.send_task(
+        "askai.summarisation.summarise_document",
+        args=[str(tenant_id), str(document_id)],
+    )
+    return getattr(result, "id", "")
+
+
+@router.post("/summarise-missing")
+async def summarise_missing(
+    limit: int = Query(200, ge=1, le=2000),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, int]:
+    """Backfill: queue summary + keyphrases for the caller's documents that
+    don't have a summary yet. Capped so a big corpus can't flood the broker."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        doc_ids = (
+            (
+                await session.execute(
+                    select(Document.id)
+                    .where(
+                        (Document.tenant_id == principal.tenant_id)
+                        & ((Document.summary.is_(None)) | (Document.summary == ""))
+                    )
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    for doc_id in doc_ids:
+        _queue_summarise(principal.tenant_id, doc_id)
+    await record_action(
+        principal=principal,
+        action="document.summarise_missing",
+        resource="/v1/documents/summarise-missing",
+        extra={"queued": len(doc_ids)},
+    )
+    return {"queued": len(doc_ids)}
+
+
+@router.post("/{document_id}/summarise")
+async def summarise_document_now(
+    document_id: UUID,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, str]:
+    """Queue summary + keyphrases generation for a single owned document."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        owns = (
+            await session.execute(
+                select(Document.id).where(
+                    (Document.id == document_id)
+                    & (Document.tenant_id == principal.tenant_id)
+                )
+            )
+        ).scalar_one_or_none()
+    if owns is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    task_id = _queue_summarise(principal.tenant_id, document_id)
+    await record_action(
+        principal=principal,
+        action="document.summarise",
+        resource=f"/v1/documents/{document_id}/summarise",
+        extra={"document_id": str(document_id)},
+    )
+    return {"status": "queued", "task_id": task_id, "document_id": str(document_id)}

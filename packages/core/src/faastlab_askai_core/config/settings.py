@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     llm_provider: LLMProvider = "openai"
     llm_model: str = "gpt-4o"
     summarisation_model: str = "gpt-4o-mini"
+    # After a document is ingested, auto-generate its summary + keyphrases on
+    # the worker (one LLM call per doc, via the deployment's default LLM — OpenAI
+    # on the cloud demo, Qwen on the GPU box). On by default; set
+    # SUMMARISE_ON_INGEST=false to skip it (e.g. to save tokens on a huge crawl).
+    summarise_on_ingest: bool = True
     openai_api_key: str | None = None
     # Override the OpenAI-compatible base URL for the LLM. Point this at a
     # sovereign vLLM endpoint (e.g. http://<gpu-ip>:8000/v1) to run fully
