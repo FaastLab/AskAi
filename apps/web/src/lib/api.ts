@@ -1299,6 +1299,33 @@ export async function summariseMissing(): Promise<number> {
   return ((await r.json()) as { queued: number }).queued;
 }
 
+// ---- Document enrichment (owner-only): auto-summary toggle + status ---------
+
+export type EnrichmentSettings = { auto: boolean; default: boolean };
+export type EnrichmentStatus = { total: number; enriched: number; pending: number };
+
+export async function getEnrichment(): Promise<EnrichmentSettings | null> {
+  const r = await fetch("/v1/enrichment", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as EnrichmentSettings;
+}
+
+export async function setEnrichment(auto: boolean): Promise<EnrichmentSettings | null> {
+  const r = await fetch("/v1/enrichment", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ auto }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as EnrichmentSettings;
+}
+
+export async function getEnrichmentStatus(): Promise<EnrichmentStatus | null> {
+  const r = await fetch("/v1/enrichment/status", { headers: allAuthHeaders() });
+  if (!r.ok) return null;
+  return (await r.json()) as EnrichmentStatus;
+}
+
 /**
  * Get a short-lived signed URL for downloading the original document file.
  *
