@@ -37,7 +37,8 @@ from faastlab_askai_core.adapters import EmbeddingsAdapter, StorageAdapter, Vect
 from faastlab_askai_core.config import Settings, get_settings
 from faastlab_askai_core.db import Chunk as DbChunk
 from faastlab_askai_core.db import Document as DbDocument
-from faastlab_askai_core.db import IngestionJob, get_sessionmaker
+from faastlab_askai_core.db import IngestionJob, Tenant, get_sessionmaker
+from faastlab_askai_core.enrichment import enrichment_enabled
 from faastlab_askai_core.factory import get_embeddings, get_storage, get_vector_store
 from faastlab_askai_indexing.chunkers.router import get_chunker
 from faastlab_askai_indexing.connectors.base import SourceDocument
@@ -184,6 +185,9 @@ class IngestionPipeline:
         self._storage = storage or get_storage()
         self._vector_store = vector_store or get_vector_store()
         self._sessionmaker = get_sessionmaker()
+        # Cache the tenant's auto-enrichment choice for this run (loaded once,
+        # lazily) so we don't re-read tenant.settings on every document.
+        self._enrich: bool | None = None
 
     # ---- Public ----------------------------------------------------------
 
@@ -292,10 +296,11 @@ class IngestionPipeline:
                 await self._close_job(
                     session, job, doc_id=doc.id, status="success"
                 )
-                # Auto-enrich: queue summary + keyphrases on the worker (opt-out
-                # via SUMMARISE_ON_INGEST). Only when we actually wrote chunks —
-                # there's nothing to summarise otherwise.
-                if self._settings.summarise_on_ingest and chunks_written > 0:
+                # Auto-enrich: queue summary + keyphrases on the worker when the
+                # tenant has enrichment on (falling back to the deployment
+                # default). Only when we actually wrote chunks — there's nothing
+                # to summarise otherwise.
+                if chunks_written > 0 and await self._should_enrich():
                     _enqueue_summarise(doc.tenant_id, doc.id)
                 return IngestionResult(
                     document_id=doc.id,
@@ -312,6 +317,21 @@ class IngestionPipeline:
                 raise
 
     # ---- Internals -------------------------------------------------------
+
+    async def _should_enrich(self) -> bool:
+        """Whether to auto-summarise — the tenant's toggle, else the deployment
+        default. Loaded once per pipeline run and cached."""
+        if self._enrich is None:
+            async with self._sessionmaker() as session:
+                settings = (
+                    await session.execute(
+                        select(Tenant.settings).where(Tenant.id == self._tenant_id)
+                    )
+                ).scalar_one_or_none()
+            self._enrich = enrichment_enabled(
+                settings, default=self._settings.summarise_on_ingest
+            )
+        return self._enrich
 
     async def _open_job(
         self, session: AsyncSession, source: SourceDocument

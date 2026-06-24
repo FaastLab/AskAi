@@ -55,6 +55,54 @@ def run_due_connectors() -> dict[str, Any]:
     return asyncio.run(_run_due_connectors())
 
 
+@celery_app.task(name="askai.indexing.enrich_pending_documents")
+def enrich_pending_documents() -> dict[str, Any]:
+    """Sweep: for every tenant with auto-enrichment on, queue summary+keyphrases
+    for any document still missing a summary. Self-heals docs ingested before the
+    toggle, failed jobs, etc. — so the customer never runs a command. Wired to a
+    Celery beat tick; steady-state cost is zero (no pending docs → no work)."""
+    return asyncio.run(_enrich_pending_documents())
+
+
+async def _enrich_pending_documents() -> dict[str, Any]:
+    from faastlab_askai_core.config import get_settings
+    from faastlab_askai_core.db import Document, Tenant, get_sessionmaker
+    from faastlab_askai_core.enrichment import enrichment_enabled
+
+    default = get_settings().summarise_on_ingest
+    sm = get_sessionmaker()
+    enqueued = 0
+    async with sm() as session:
+        tenants = (await session.execute(select(Tenant.id, Tenant.settings))).all()
+    for tenant_id, tenant_settings in tenants:
+        if not enrichment_enabled(tenant_settings, default=default):
+            continue
+        async with sm() as session:
+            # Cap per tenant per tick so a huge backlog drains gradually rather
+            # than flooding the broker (and the LLM) in one burst.
+            doc_ids = (
+                (
+                    await session.execute(
+                        select(Document.id)
+                        .where(
+                            Document.tenant_id == tenant_id,
+                            (Document.summary.is_(None)) | (Document.summary == ""),
+                        )
+                        .limit(50)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        for doc_id in doc_ids:
+            celery_app.send_task(
+                "askai.summarisation.summarise_document",
+                args=[str(tenant_id), str(doc_id)],
+            )
+            enqueued += 1
+    return {"enqueued": enqueued}
+
+
 @celery_app.task(name="askai.indexing.run_indexer")
 def run_indexer(indexer_id: str) -> dict[str, Any]:
     """Run one Indexer (Source → crawler → pipeline) and record an IndexerRun.
