@@ -62,6 +62,16 @@ def make_celery() -> Celery:
         "schedule": schedule(run_every=timedelta(seconds=indexer_tick)),
     }
 
+    # Always on: the enrichment self-heal sweep. Every 5 min it queues summaries
+    # for documents still missing one (only for tenants who turned enrichment
+    # on). Costs nothing when there's no backlog. So the customer never runs a
+    # command — the backfill just happens.
+    enrich_tick = int(os.getenv("ENRICH_SWEEP_INTERVAL_SECONDS", "300"))
+    beat["enrich-pending-documents"] = {
+        "task": "askai.indexing.enrich_pending_documents",
+        "schedule": schedule(run_every=timedelta(seconds=enrich_tick)),
+    }
+
     # Opt-in: the older web-connector scheduler.
     if _truthy(os.getenv("CONNECTORS_SCHEDULER_ENABLED")):
         every = int(os.getenv("CONNECTORS_SCHEDULER_INTERVAL_SECONDS", "300"))
