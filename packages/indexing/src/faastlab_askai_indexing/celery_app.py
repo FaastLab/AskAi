@@ -32,7 +32,12 @@ def make_celery() -> Celery:
         "faastlab_askai_indexing",
         broker=settings.celery_broker_url,
         backend=settings.celery_result_backend,
-        include=["faastlab_askai_indexing.tasks"],
+        # Register both the indexing tasks and the summarisation task (the
+        # post-ingest summary/keyphrases job) so the worker can run them.
+        include=[
+            "faastlab_askai_indexing.tasks",
+            "faastlab_askai_summarisation.tasks",
+        ],
     )
     app.conf.update(
         task_serializer="json",
@@ -55,6 +60,16 @@ def make_celery() -> Celery:
     beat["run-due-indexers"] = {
         "task": "askai.indexing.run_due_indexers",
         "schedule": schedule(run_every=timedelta(seconds=indexer_tick)),
+    }
+
+    # Always on: the enrichment self-heal sweep. Every 5 min it queues summaries
+    # for documents still missing one (only for tenants who turned enrichment
+    # on). Costs nothing when there's no backlog. So the customer never runs a
+    # command — the backfill just happens.
+    enrich_tick = int(os.getenv("ENRICH_SWEEP_INTERVAL_SECONDS", "300"))
+    beat["enrich-pending-documents"] = {
+        "task": "askai.indexing.enrich_pending_documents",
+        "schedule": schedule(run_every=timedelta(seconds=enrich_tick)),
     }
 
     # Opt-in: the older web-connector scheduler.

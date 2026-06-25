@@ -8,14 +8,19 @@ import {
   listDocumentCounts,
   listDocuments,
   searchChunks,
+  summariseDocument,
   type DocumentRecord,
   type InstantCounts,
   type PublicConfig,
   type SearchHit,
 } from "../lib/api";
 
-// Stable ordering for the regulator chips. Anything not listed here falls
-// back to "Other". `uploads` is the user's own files; `all` shows everything.
+// Stable ordering + display labels for known doc_type chips. This is just a
+// label/ordering hint — a chip only renders if the tenant actually HAS docs of
+// that type (see the filter at render time), so the core stays industry-
+// agnostic: a rail/legal tenant never shows finance categories, and any
+// doc_type not listed here still appears via its raw key.
+// `uploads` is the user's own files; `all` shows everything.
 const CHIPS: { key: string; label: string }[] = [
   { key: "all", label: "All" },
   { key: "fca", label: "FCA" },
@@ -322,9 +327,21 @@ export function DocumentsPage() {
           )}
         </header>
 
-        {/* Category chips — regulator filter */}
+        {/* Category chips — data-driven: 'All' + 'Your uploads' always show;
+            a named category chip appears only if the tenant has docs of that
+            type. Keeps the core industry-agnostic (no empty finance chips on a
+            rail/legal tenant). */}
         <div className="border-b border-slate-200 bg-white px-6 py-2 flex items-center gap-2 overflow-x-auto">
-          {CHIPS.map((c) => {
+          {/* Filter (which chips EXIST) is driven by browse counts so a chip
+              only shows when the tenant has docs of that type — keeps the core
+              industry-agnostic. The live Typesense facet only changes the NUMBER
+              shown on each chip while a query is active. */}
+          {CHIPS.filter(
+            (c) =>
+              c.key === "all" ||
+              c.key === "uploads" ||
+              (counts[c.key] ?? 0) > 0,
+          ).map((c) => {
             // While a query is active and Typesense is on, show LIVE match
             // counts per regulator; otherwise the browse document counts.
             const liveFacet =
@@ -690,7 +707,7 @@ function DocumentDetail({
         </section>
       )}
 
-      {doc.summary && (
+      {doc.summary ? (
         <section className="mt-6">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
             Summary
@@ -699,6 +716,11 @@ function DocumentDetail({
             {doc.summary}
           </p>
         </section>
+      ) : (
+        // No summary yet — offer to generate it (runs on the worker via the
+        // deployment's default LLM). New uploads auto-summarise; this covers
+        // older docs ingested before that was enabled.
+        <SummariseButton documentId={doc.id} />
       )}
 
       {doc.keyphrases && doc.keyphrases.length > 0 && (
@@ -719,6 +741,36 @@ function DocumentDetail({
         </section>
       )}
     </div>
+  );
+}
+
+function SummariseButton({ documentId }: { documentId: string }) {
+  // idle → click → queued. The job runs async on the worker, so we just confirm
+  // it's queued and tell the user to refresh; we don't poll.
+  const [state, setState] = useState<"idle" | "working" | "queued">("idle");
+  return (
+    <section className="mt-6">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+        Summary
+      </h3>
+      {state === "queued" ? (
+        <p className="mt-2 text-sm text-ink-600">
+          Generating summary &amp; keyphrases on the server — refresh in ~30s.
+        </p>
+      ) : (
+        <button
+          onClick={async () => {
+            setState("working");
+            const ok = await summariseDocument(documentId);
+            setState(ok ? "queued" : "idle");
+          }}
+          disabled={state === "working"}
+          className="mt-2 rounded-md bg-ink-900 px-3 py-2 text-sm text-white hover:bg-ink-700 disabled:opacity-50"
+        >
+          {state === "working" ? "Queuing…" : "Generate summary & keyphrases"}
+        </button>
+      )}
+    </section>
   );
 }
 

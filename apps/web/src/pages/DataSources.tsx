@@ -4,11 +4,16 @@ import {
   createFolderSource,
   deleteIndexer,
   enablePreset,
+  getEnrichment,
+  getEnrichmentStatus,
   getIndexerRuns,
   listIndexers,
   listPresets,
   runIndexer,
+  setEnrichment,
+  summariseMissing,
   uploadToSource,
+  type EnrichmentStatus,
   type IngestIndexer,
   type IngestPreset,
   type IngestRun,
@@ -187,6 +192,9 @@ export function DataSourcesPage() {
             <div className="text-sm text-ink-500">Loading…</div>
           ) : (
             <div className="max-w-4xl mx-auto space-y-8">
+              {/* Enrichment — auto summaries + keyphrases */}
+              <EnrichmentPanel />
+
               {/* Presets */}
               <section>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500 mb-3">
@@ -425,6 +433,95 @@ function NewSourceForm({
         </div>
       </div>
     </div>
+  );
+}
+
+function EnrichmentPanel() {
+  // Self-contained: loads the toggle + the enriched/total status, lets the
+  // owner flip auto-enrichment and kick a one-off backfill of the remainder.
+  const [auto, setAuto] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<EnrichmentStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function refresh() {
+    const [s, st] = await Promise.all([getEnrichment(), getEnrichmentStatus()]);
+    if (s) setAuto(s.auto);
+    setStatus(st);
+  }
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    const res = await setEnrichment(!auto);
+    if (res) setAuto(res.auto);
+    setBusy(false);
+  }
+
+  async function enrichRemaining() {
+    setBusy(true);
+    setNote(null);
+    const queued = await summariseMissing();
+    setNote(`Queued ${queued} document(s) — summaries appear as they finish.`);
+    setBusy(false);
+    setTimeout(refresh, 4000);
+  }
+
+  const pct =
+    status && status.total > 0
+      ? Math.round((status.enriched / status.total) * 100)
+      : 0;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-sm font-semibold text-ink-900">Document enrichment</h2>
+          <p className="text-xs text-ink-500 mt-0.5 max-w-xl">
+            Auto-generate a summary &amp; keyphrases for every document, using your
+            configured model. ~1 model call per document.
+          </p>
+        </div>
+        {/* Toggle */}
+        <button
+          onClick={toggle}
+          disabled={busy || auto === null}
+          className={
+            "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors " +
+            (auto
+              ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+              : "bg-slate-50 border-slate-300 text-ink-600")
+          }
+        >
+          {auto === null ? "…" : auto ? "Auto-enrich: ON" : "Auto-enrich: OFF"}
+        </button>
+      </div>
+
+      {status && status.total > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-xs text-ink-500">
+            <span>
+              {status.enriched} / {status.total} enriched
+            </span>
+            {status.pending > 0 && (
+              <button
+                onClick={enrichRemaining}
+                disabled={busy}
+                className="rounded-md bg-ink-900 px-2.5 py-1 text-xs text-white hover:bg-ink-700 disabled:opacity-50"
+              >
+                Enrich remaining ({status.pending})
+              </button>
+            )}
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      )}
+      {note && <p className="mt-2 text-xs text-blue-700">{note}</p>}
+    </section>
   );
 }
 
