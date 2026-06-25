@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Sidebar } from "../components/Sidebar";
 import {
+  deleteDocument,
   getConfig,
   getDocumentFileUrl,
   instantSearch,
@@ -33,6 +34,7 @@ const CHIPS: { key: string; label: string }[] = [
   { key: "fos-decision", label: "FOS decisions" },
   { key: "uploads", label: "Your uploads" },
 ];
+import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
 type Mode = "browse" | "search";
@@ -428,6 +430,13 @@ export function DocumentsPage() {
                     ? hits.filter((h) => h.document_id === selectedDoc.id)
                     : []
                 }
+                onDeleted={(id) => {
+                  // Drop the deleted doc from the list, clear the selection,
+                  // and refresh the chip counts so the badges stay accurate.
+                  setDocs((prev) => prev.filter((d) => d.id !== id));
+                  setSelectedId(null);
+                  listDocumentCounts().then(setCounts);
+                }}
               />
             ) : (
               <EmptyDetail />
@@ -579,12 +588,37 @@ function SearchList({
 function DocumentDetail({
   doc,
   searchHits,
+  onDeleted,
 }: {
   doc: DocumentRecord;
   searchHits: SearchHit[];
+  onDeleted: (id: string) => void;
 }) {
   const sourceIsHttp =
     doc.source_uri.startsWith("http://") || doc.source_uri.startsWith("https://");
+
+  // The API only lets a tenant delete its OWN documents (the shared regulator
+  // corpus is protected), so only show Delete for docs this tenant owns.
+  const canDelete = doc.tenant_id === loadAuth()?.user?.tenant_id;
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    if (deleteBusy) return;
+    // Hard delete — confirm first, since chunks + the stored file go too.
+    if (!window.confirm(`Delete "${doc.title}"? This permanently removes the document and its search index.`)) {
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const ok = await deleteDocument(doc.id);
+    setDeleteBusy(false);
+    if (ok) {
+      onDeleted(doc.id);
+    } else {
+      setDeleteError("Could not delete — you can only delete your own documents.");
+    }
+  }
 
   // "View internal copy" mints a fresh signed URL on click rather than
   // pre-fetching on render. The signed token is short-lived (5 min) and
@@ -674,9 +708,34 @@ function DocumentDetail({
         >
           source: {doc.source_uri.length > 60 ? doc.source_uri.slice(0, 57) + "…" : doc.source_uri}
         </span>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleteBusy}
+            className={
+              "ml-auto inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm " +
+              (deleteBusy
+                ? "border-red-200 text-red-400 cursor-wait"
+                : "border-red-300 text-red-700 hover:bg-red-50")
+            }
+            title="Permanently delete this document"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+            {deleteBusy ? "Deleting…" : "Delete"}
+          </button>
+        )}
       </div>
       {viewError && (
         <p className="mt-2 text-xs text-red-700">{viewError}</p>
+      )}
+      {deleteError && (
+        <p className="mt-2 text-xs text-red-700">{deleteError}</p>
       )}
 
       {searchHits.length > 0 && (
