@@ -133,7 +133,7 @@ export function SearchPage() {
                     <span className="font-semibold text-ink-800">
                       {counts.found.toLocaleString()}
                     </span>{" "}
-                    keyword match{counts.found === 1 ? "" : "es"}
+                    matching passage{counts.found === 1 ? "" : "s"}
                   </span>
                 ) : (
                   <span className="text-ink-400" title="Enable RETRIEVER=typesense">
