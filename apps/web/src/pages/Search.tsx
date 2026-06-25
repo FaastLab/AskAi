@@ -88,7 +88,21 @@ export function SearchPage() {
   );
 
   const selectedDoc = selectedId ? docsById.get(selectedId) ?? null : null;
-  const docTypeFacets = counts?.facets?.doc_type ?? {};
+
+  // Chip facet counts. Once a full (semantic) search has run, count DOCUMENTS
+  // per doc_type from the ACTUAL results so the chips match "N across M
+  // documents" and filter correctly. Before any results, fall back to the live
+  // keyword facet counts from instantSearch (the as-you-type preview).
+  const resultFacets = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const g of hitsByDoc) {
+      const t = g.doc?.doc_type;
+      if (t) m[t] = (m[t] ?? 0) + 1;
+    }
+    return m;
+  }, [hitsByDoc]);
+  const docTypeFacets =
+    hits.length > 0 ? resultFacets : counts?.facets?.doc_type ?? {};
   const facetEntries = Object.entries(docTypeFacets).sort((a, b) => b[1] - a[1]);
 
   return (
@@ -119,7 +133,7 @@ export function SearchPage() {
                     <span className="font-semibold text-ink-800">
                       {counts.found.toLocaleString()}
                     </span>{" "}
-                    match{counts.found === 1 ? "" : "es"}
+                    keyword match{counts.found === 1 ? "" : "es"}
                   </span>
                 ) : (
                   <span className="text-ink-400" title="Enable RETRIEVER=typesense">
