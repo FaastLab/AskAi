@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Sidebar } from "../components/Sidebar";
+import { ChatHistory } from "../components/ChatHistory";
 import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
@@ -185,6 +186,7 @@ export function ChatPage() {
   return (
     <div className="flex h-dvh">
       <Sidebar />
+      <ChatHistory />
       <main className="flex-1 flex flex-col">
         <header className="border-b border-slate-200 bg-white px-6 py-3 flex items-center justify-between">
           <div>
