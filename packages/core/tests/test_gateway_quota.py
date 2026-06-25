@@ -21,6 +21,7 @@ from faastlab_askai_core.gateway import (
     QuotaUsage,
     estimate_cost_usd,
     estimate_tokens,
+    model_cost_usd,
     resolve_limits,
     usage_from_text,
 )
@@ -63,6 +64,33 @@ def test_estimate_cost_uses_price(monkeypatch) -> None:
     monkeypatch.setattr(usage_mod, "get_settings", lambda: _settings(gateway_price_per_1k_tokens=2.0))
     # 1000 tokens * $2/1k = $2.00
     assert estimate_cost_usd(1000) == pytest.approx(2.0)
+
+
+def test_model_cost_uses_input_output_rates() -> None:
+    # gpt-4o = $2.50/1M input, $10.00/1M output.
+    # 1M input + 1M output = $2.50 + $10.00 = $12.50
+    assert model_cost_usd("gpt-4o", 1_000_000, 1_000_000) == pytest.approx(12.50)
+    # gpt-4o-mini cheaper: 1M in + 1M out = $0.15 + $0.60 = $0.75
+    assert model_cost_usd("gpt-4o-mini", 1_000_000, 1_000_000) == pytest.approx(0.75)
+
+
+def test_model_cost_matches_dated_model_id_by_prefix() -> None:
+    # Dated/suffixed ids resolve to their base model's rate.
+    assert model_cost_usd("gpt-4o-2024-08-06", 1_000_000, 0) == pytest.approx(2.50)
+
+
+def test_model_cost_none_for_unknown_or_sovereign_model() -> None:
+    # Unknown (e.g. a self-hosted Qwen) → None so the caller falls back to flat.
+    assert model_cost_usd("Qwen/Qwen2.5-14B-Instruct", 1000, 1000) is None
+    assert model_cost_usd(None, 1000, 1000) is None
+
+
+def test_usage_from_text_prices_known_model(monkeypatch) -> None:
+    # Even with the flat rate at 0, a known OpenAI model is priced per-model
+    # (so OpenAI usage is no longer reported as $0/sovereign).
+    monkeypatch.setattr(usage_mod, "get_settings", lambda: _settings())
+    rec = usage_from_text(prompt="hello world", completion="hi", model="gpt-4o")
+    assert rec.cost_usd > 0
 
 
 def test_usage_from_text_sums_tokens(monkeypatch) -> None:

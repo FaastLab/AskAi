@@ -13,6 +13,7 @@ non-breaking until a wrapper chooses to re-vendor.
 """
 
 from faastlab_askai_core.gateway.context import GatewayContext
+from faastlab_askai_core.gateway.llm_adapter import GatewayLLMAdapter
 from faastlab_askai_core.gateway.policy import (
     Policy,
     PolicyEngine,
@@ -40,7 +41,6 @@ from faastlab_askai_core.gateway.router import (
     load_tenant_settings,
     resolve_route,
 )
-from faastlab_askai_core.gateway.llm_adapter import GatewayLLMAdapter
 from faastlab_askai_core.gateway.service import AIGateway, GatewayResult
 from faastlab_askai_core.gateway.targets import (
     TARGET_NAMES,
@@ -52,6 +52,7 @@ from faastlab_askai_core.gateway.usage import (
     UsageRecord,
     estimate_cost_usd,
     estimate_tokens,
+    model_cost_usd,
     record_usage,
     usage_from_text,
 )
@@ -66,8 +67,6 @@ __all__ = [
     "ModelRoute",
     "ModelRouter",
     "ModelTarget",
-    "available_targets",
-    "resolve_target_chain",
     "Policy",
     "PolicyEngine",
     "PromptRecord",
@@ -79,14 +78,17 @@ __all__ = [
     "QuotaStatus",
     "QuotaUsage",
     "UsageRecord",
+    "available_targets",
     "estimate_cost_usd",
     "estimate_tokens",
     "load_tenant_settings",
+    "model_cost_usd",
     "record_usage",
     "register_default",
     "render_template",
     "resolve_limits",
     "resolve_policy",
     "resolve_route",
+    "resolve_target_chain",
     "usage_from_text",
 ]
