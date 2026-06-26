@@ -6,7 +6,7 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, getSession, listRoles, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { getConfig, getSession, listRoles, savePromptVersion, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
 import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
@@ -53,6 +53,15 @@ export function ChatPage() {
   async function makeDefault() {
     const res = await setDefaultRole(role);
     if (res) setTenantDefaultRole(res.default_role);
+  }
+  // Add-role editor (owner-only). Built-in roles are left untouched — this only
+  // creates brand-new role.<slug> prompts.
+  const [showAddRole, setShowAddRole] = useState(false);
+  async function onRoleCreated(slug: string) {
+    const r = await listRoles();
+    setRoles(r.roles);
+    setRole(slug); // switch the conversation to the freshly-created role
+    setShowAddRole(false);
   }
 
   // Pull server config; if it requires BYOK and the user has no key,
@@ -242,6 +251,15 @@ export function ChatPage() {
                 Set default
               </button>
             )}
+            {isOwner && (
+              <button
+                onClick={() => setShowAddRole(true)}
+                title="Create a new assistant role with its own prompt"
+                className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+              >
+                + New role
+              </button>
+            )}
             <button
               onClick={toggleRerank}
               className={
@@ -333,6 +351,107 @@ export function ChatPage() {
         open={showUpload}
         onClose={() => setShowUpload(false)}
       />
+      {showAddRole && (
+        <AddRoleModal
+          existing={roles}
+          onClose={() => setShowAddRole(false)}
+          onCreated={onRoleCreated}
+        />
+      )}
+    </div>
+  );
+}
+
+// Owner-only editor to create a brand-new role (a `role.<slug>` prompt). Saves
+// AND activates in one call (savePromptVersion sends activate:true). Built-in
+// roles are never touched here.
+function AddRoleModal({
+  existing,
+  onClose,
+  onCreated,
+}: {
+  existing: Role[];
+  onClose: () => void;
+  onCreated: (slug: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Derive a url-safe slug from the display name.
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  async function save() {
+    setError(null);
+    if (!slug) return setError("Enter a role name.");
+    if (!prompt.trim()) return setError("Enter the role's system prompt.");
+    if (existing.some((r) => r.slug === slug)) {
+      return setError(`A role "${slug}" already exists — choose a different name.`);
+    }
+    setSaving(true);
+    try {
+      // role.<slug> — savePromptVersion saves + activates in one go.
+      await savePromptVersion(`role.${slug}`, prompt.trim(), name.trim());
+      onCreated(slug);
+    } catch (e) {
+      setError((e as Error).message || "Could not save the role.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-ink-900">New assistant role</h2>
+          <button onClick={onClose} className="text-ink-400 hover:text-ink-700" title="Close">
+            ✕
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-600 mb-1">Role name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Risk Analyst"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ink-300"
+            />
+            {slug && <p className="mt-1 text-[11px] text-ink-400">id: role.{slug}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-600 mb-1">System prompt</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={9}
+              placeholder="Describe the role's persona/lens. Keep the grounding rules: answer only from the retrieved context and cite sources by [number]."
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ink-300"
+            />
+          </div>
+          {error && <p className="text-xs text-red-700">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-100"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-md bg-ink-900 px-3 py-2 text-sm text-white hover:bg-ink-700 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save & Activate"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
