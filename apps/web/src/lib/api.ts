@@ -1082,6 +1082,24 @@ export async function listRoles(): Promise<RolesResponse> {
   return (await r.json()) as RolesResponse;
 }
 
+export async function createRole(
+  name: string,
+  prompt: string,
+): Promise<RolesResponse> {
+  const r = await fetch("/v1/roles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ name, prompt }),
+  });
+  if (!r.ok) {
+    const detail = await r.json().catch(() => null);
+    throw new Error(
+      (detail && (detail.detail as string)) || `Create failed (HTTP ${r.status})`,
+    );
+  }
+  return (await r.json()) as RolesResponse;
+}
+
 export async function setDefaultRole(role: string | null): Promise<RolesResponse | null> {
   const r = await fetch("/v1/roles/default", {
     method: "PUT",
