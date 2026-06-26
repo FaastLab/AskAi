@@ -6,7 +6,8 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, getSession, streamAsk, submitFeedback, type Citation, type PublicConfig } from "../lib/api";
+import { getConfig, getSession, listRoles, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
 export function ChatPage() {
@@ -34,6 +35,25 @@ export function ChatPage() {
     });
   };
   const abortRef = useRef<AbortController | null>(null);
+
+  // Assistant roles: load the tenant's roles + default, let the user pick one
+  // for this conversation. `role === null` means "use the tenant default".
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [role, setRole] = useState<string | null>(null);
+  const [tenantDefaultRole, setTenantDefaultRole] = useState<string | null>(null);
+  useEffect(() => {
+    listRoles().then((r) => {
+      setRoles(r.roles);
+      setRole(r.default_role); // start on the tenant default
+      setTenantDefaultRole(r.default_role);
+    });
+  }, []);
+  // Owners can pin the current selection as the tenant-wide default role.
+  const isOwner = loadAuth()?.user?.role === "owner";
+  async function makeDefault() {
+    const res = await setDefaultRole(role);
+    if (res) setTenantDefaultRole(res.default_role);
+  }
 
   // Pull server config; if it requires BYOK and the user has no key,
   // open the settings modal automatically on first load.
@@ -138,6 +158,7 @@ export function ChatPage() {
         sessionId,
         signal: ctl.signal,
         rerank: useRerank,
+        role,
       })) {
         if (event.event === "token") {
           collected += event.text;
@@ -197,6 +218,30 @@ export function ChatPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
+            {roles.length > 0 && (
+              <select
+                value={role ?? ""}
+                onChange={(e) => setRole(e.target.value || null)}
+                title="Assistant role — each role uses its own system prompt"
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink-700 focus:outline-none focus:ring-1 focus:ring-ink-300"
+              >
+                <option value="">Default role</option>
+                {roles.map((r) => (
+                  <option key={r.slug} value={r.slug}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {isOwner && roles.length > 0 && role !== tenantDefaultRole && (
+              <button
+                onClick={makeDefault}
+                title="Set this role as the tenant-wide default for everyone"
+                className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+              >
+                Set default
+              </button>
+            )}
             <button
               onClick={toggleRerank}
               className={

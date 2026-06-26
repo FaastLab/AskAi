@@ -1071,9 +1071,30 @@ export async function getConfig(): Promise<PublicConfig | null> {
   }
 }
 
+// ---- Assistant roles (each a named system prompt) --------------------------
+
+export type Role = { slug: string; label: string };
+export type RolesResponse = { roles: Role[]; default_role: string | null };
+
+export async function listRoles(): Promise<RolesResponse> {
+  const r = await fetch("/v1/roles", { headers: allAuthHeaders() });
+  if (!r.ok) return { roles: [], default_role: null };
+  return (await r.json()) as RolesResponse;
+}
+
+export async function setDefaultRole(role: string | null): Promise<RolesResponse | null> {
+  const r = await fetch("/v1/roles/default", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ role }),
+  });
+  if (!r.ok) return null;
+  return (await r.json()) as RolesResponse;
+}
+
 export async function* streamAsk(
   question: string,
-  opts?: { sessionId?: string | null; includeSuperseded?: boolean; signal?: AbortSignal; rerank?: boolean }
+  opts?: { sessionId?: string | null; includeSuperseded?: boolean; signal?: AbortSignal; rerank?: boolean; role?: string | null }
 ): AsyncGenerator<AskEvent> {
   const queue: AskEvent[] = [];
   let resolve: ((e: AskEvent | null) => void) | null = null;
@@ -1096,6 +1117,7 @@ export async function* streamAsk(
       filters: { include_superseded: opts?.includeSuperseded ?? false },
       stream: true,
       rerank: opts?.rerank ?? true,
+      role: opts?.role ?? null,
     }),
     onmessage(msg) {
       try {

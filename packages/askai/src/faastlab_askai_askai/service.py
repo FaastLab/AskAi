@@ -15,7 +15,11 @@ from uuid import UUID
 
 from faastlab_askai_askai.citations import extract_citations
 from faastlab_askai_askai.memory import SessionMemory
-from faastlab_askai_askai.prompts import REFUSAL_NO_CONTEXT, build_rag_messages
+from faastlab_askai_askai.prompts import (
+    REFUSAL_NO_CONTEXT,
+    build_rag_messages,
+    role_prompt_name,
+)
 from faastlab_askai_core.gateway import AIGateway, GatewayContext, PromptRegistry
 from faastlab_askai_core.schemas.search import Citation
 from faastlab_askai_search.filters import SearchFilters
@@ -58,12 +62,47 @@ class AskAiService:
         self._temperature = temperature
         self._max_tokens = max_tokens
 
-    async def _system_prompt(self) -> str | None:
-        """Resolve the active RAG system prompt from the registry (curated via
-        the Prompts UI). Defensive: any failure falls back to the built-in
-        default so prompt resolution never breaks a request."""
+    async def _system_prompt(
+        self, *, tenant_id: UUID, role: str | None = None
+    ) -> str | None:
+        """Resolve the system prompt for this turn.
+
+        Order: the explicit per-request `role`, then the tenant's default role,
+        then the standard `rag.system` prompt. Each role is the registry prompt
+        `role.<slug>`. Defensive: any failure falls back to the built-in default
+        so prompt resolution never breaks a request.
+        """
+        candidates: list[str] = []
+        if role:
+            candidates.append(role_prompt_name(role))
+        default_role = await self._tenant_default_role(tenant_id)
+        if default_role:
+            candidates.append(role_prompt_name(default_role))
+        candidates.append("rag.system")
+        for name in candidates:
+            try:
+                return (await self._prompts.get(name)).template
+            except Exception:
+                continue
+        return None
+
+    async def _tenant_default_role(self, tenant_id: UUID) -> str | None:
+        """The tenant's default role slug from `tenant.settings['default_role']`,
+        or None. Best-effort: never breaks a request."""
         try:
-            return (await self._prompts.get("rag.system")).template
+            from sqlalchemy import select
+
+            from faastlab_askai_core.db import Tenant, get_sessionmaker
+
+            sm = get_sessionmaker()
+            async with sm() as session:
+                settings = (
+                    await session.execute(
+                        select(Tenant.settings).where(Tenant.id == tenant_id)
+                    )
+                ).scalar_one_or_none()
+            role = (settings or {}).get("default_role")
+            return role if isinstance(role, str) and role.strip() else None
         except Exception:
             return None
 
@@ -77,6 +116,7 @@ class AskAiService:
         filters: SearchFilters | None = None,
         rerank: bool = True,
         request_id: str | None = None,
+        role: str | None = None,
     ) -> AskOutcome:
         started = perf_counter()
         session_uuid, history = await self._memory.load(
@@ -94,7 +134,9 @@ class AskAiService:
                 question,
                 retrieval.hits,
                 history=history,
-                system_prompt=await self._system_prompt(),
+                system_prompt=await self._system_prompt(
+                    tenant_id=tenant_id, role=role
+                ),
             )
             generated = await self._gateway.complete(
                 ctx,
@@ -140,6 +182,7 @@ class AskAiService:
         filters: SearchFilters | None = None,
         rerank: bool = True,
         request_id: str | None = None,
+        role: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """Yield JSON-friendly events:
             {"event": "retrieve", "confidence": 0.42}
@@ -180,7 +223,9 @@ class AskAiService:
                 question,
                 retrieval.hits,
                 history=history,
-                system_prompt=await self._system_prompt(),
+                system_prompt=await self._system_prompt(
+                    tenant_id=tenant_id, role=role
+                ),
             )
             first_token_at: float | None = None
             async for token in self._gateway.stream(
