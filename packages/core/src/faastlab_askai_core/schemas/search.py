@@ -40,6 +40,10 @@ class AskRequest(BaseModel):
     stream: bool = False
     multi_step: bool | None = None  # None = router decides
     rerank: bool = True  # set False for faster, lower-precision answers
+    # Optional assistant role (slug, e.g. "compliance-officer"). Selects the
+    # role's system prompt for this turn; None falls back to the tenant default
+    # role, then the built-in RAG prompt.
+    role: str | None = None
 
 
 class AskResponse(BaseModel):
