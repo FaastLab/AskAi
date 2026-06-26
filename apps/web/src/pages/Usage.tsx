@@ -29,7 +29,11 @@ function fmtInt(n: number): string {
 }
 
 function fmtCost(n: number): string {
-  return n === 0 ? "$0 (sovereign)" : `$${n.toFixed(4)}`;
+  // Always show the dollar amount. Don't infer "sovereign" from a $0 total —
+  // a zero usually just means no metered usage in the window, not a sovereign
+  // deployment. Whether a deployment is sovereign is a provider/config fact,
+  // not something to guess from the cost.
+  return `$${n.toFixed(4)}`;
 }
 
 function fmtMs(n: number | null): string {
