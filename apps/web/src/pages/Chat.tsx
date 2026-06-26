@@ -227,39 +227,6 @@ export function ChatPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
-            {roles.length > 0 && (
-              <select
-                value={role ?? ""}
-                onChange={(e) => setRole(e.target.value || null)}
-                title="Assistant role — each role uses its own system prompt"
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink-700 focus:outline-none focus:ring-1 focus:ring-ink-300"
-              >
-                <option value="">Default role</option>
-                {roles.map((r) => (
-                  <option key={r.slug} value={r.slug}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {isOwner && roles.length > 0 && role !== tenantDefaultRole && (
-              <button
-                onClick={makeDefault}
-                title="Set this role as the tenant-wide default for everyone"
-                className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
-              >
-                Set default
-              </button>
-            )}
-            {isOwner && (
-              <button
-                onClick={() => setShowAddRole(true)}
-                title="Create a new assistant role with its own prompt"
-                className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
-              >
-                + New role
-              </button>
-            )}
             <button
               onClick={toggleRerank}
               className={
@@ -339,7 +306,50 @@ export function ChatPage() {
             ))}
           </div>
         </div>
-        <Composer onSubmit={ask} disabled={busy} />
+        <Composer
+          onSubmit={ask}
+          disabled={busy}
+          footer={
+            roles.length > 0 ? (
+              <>
+                <span className="text-[11px] uppercase tracking-wide text-ink-400">
+                  Role
+                </span>
+                <select
+                  value={role ?? ""}
+                  onChange={(e) => setRole(e.target.value || null)}
+                  title="Assistant role — each role uses its own system prompt"
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink-700 focus:outline-none focus:ring-1 focus:ring-ink-300"
+                >
+                  <option value="">Default role</option>
+                  {roles.map((r) => (
+                    <option key={r.slug} value={r.slug}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                {isOwner && role !== tenantDefaultRole && (
+                  <button
+                    onClick={makeDefault}
+                    title="Set this role as the tenant-wide default for everyone"
+                    className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+                  >
+                    Set default
+                  </button>
+                )}
+                {isOwner && (
+                  <button
+                    onClick={() => setShowAddRole(true)}
+                    title="Create a new assistant role with its own prompt"
+                    className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+                  >
+                    + New role
+                  </button>
+                )}
+              </>
+            ) : null
+          }
+        />
       </main>
 
       <SettingsModal
