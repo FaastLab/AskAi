@@ -6,7 +6,7 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, getSession, listRoles, savePromptVersion, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { createRole, getConfig, getSession, listRoles, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
 import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
@@ -48,8 +48,9 @@ export function ChatPage() {
       setTenantDefaultRole(r.default_role);
     });
   }, []);
-  // Owners can pin the current selection as the tenant-wide default role.
-  const isOwner = loadAuth()?.user?.role === "owner";
+  // Admins (and owners) manage roles: pin a default + create new roles.
+  const userRole = loadAuth()?.user?.role;
+  const isAdmin = userRole === "owner" || userRole === "admin";
   async function makeDefault() {
     const res = await setDefaultRole(role);
     if (res) setTenantDefaultRole(res.default_role);
@@ -309,17 +310,17 @@ export function ChatPage() {
         <Composer
           onSubmit={ask}
           disabled={busy}
-          footer={
+          controls={
             roles.length > 0 ? (
               <>
-                <span className="text-[11px] uppercase tracking-wide text-ink-400">
+                <span className="text-[10px] uppercase tracking-wide text-ink-400">
                   Role
                 </span>
                 <select
                   value={role ?? ""}
                   onChange={(e) => setRole(e.target.value || null)}
                   title="Assistant role — each role uses its own system prompt"
-                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink-700 focus:outline-none focus:ring-1 focus:ring-ink-300"
+                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-ink-700 focus:outline-none focus:ring-1 focus:ring-ink-300"
                 >
                   <option value="">Default role</option>
                   {roles.map((r) => (
@@ -328,20 +329,20 @@ export function ChatPage() {
                     </option>
                   ))}
                 </select>
-                {isOwner && role !== tenantDefaultRole && (
+                {isAdmin && role !== tenantDefaultRole && (
                   <button
                     onClick={makeDefault}
                     title="Set this role as the tenant-wide default for everyone"
-                    className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+                    className="w-full rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
                   >
                     Set default
                   </button>
                 )}
-                {isOwner && (
+                {isAdmin && (
                   <button
                     onClick={() => setShowAddRole(true)}
                     title="Create a new assistant role with its own prompt"
-                    className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+                    className="w-full rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
                   >
                     + New role
                   </button>
@@ -372,9 +373,9 @@ export function ChatPage() {
   );
 }
 
-// Owner-only editor to create a brand-new role (a `role.<slug>` prompt). Saves
-// AND activates in one call (savePromptVersion sends activate:true). Built-in
-// roles are never touched here.
+// Admin/owner editor to create a brand-new role (a `role.<slug>` prompt). The
+// create endpoint saves + activates and rejects duplicates, so built-in roles
+// are never overwritten.
 function AddRoleModal({
   existing,
   onClose,
@@ -405,8 +406,8 @@ function AddRoleModal({
     }
     setSaving(true);
     try {
-      // role.<slug> — savePromptVersion saves + activates in one go.
-      await savePromptVersion(`role.${slug}`, prompt.trim(), name.trim());
+      // Server creates role.<slug>, activates it, and rejects duplicates.
+      await createRole(name.trim(), prompt.trim());
       onCreated(slug);
     } catch (e) {
       setError((e as Error).message || "Could not save the role.");
