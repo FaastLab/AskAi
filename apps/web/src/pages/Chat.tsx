@@ -6,7 +6,8 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { getConfig, getSession, listRoles, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { getConfig, getSession, listRoles, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
 export function ChatPage() {
@@ -39,12 +40,20 @@ export function ChatPage() {
   // for this conversation. `role === null` means "use the tenant default".
   const [roles, setRoles] = useState<Role[]>([]);
   const [role, setRole] = useState<string | null>(null);
+  const [tenantDefaultRole, setTenantDefaultRole] = useState<string | null>(null);
   useEffect(() => {
     listRoles().then((r) => {
       setRoles(r.roles);
       setRole(r.default_role); // start on the tenant default
+      setTenantDefaultRole(r.default_role);
     });
   }, []);
+  // Owners can pin the current selection as the tenant-wide default role.
+  const isOwner = loadAuth()?.user?.role === "owner";
+  async function makeDefault() {
+    const res = await setDefaultRole(role);
+    if (res) setTenantDefaultRole(res.default_role);
+  }
 
   // Pull server config; if it requires BYOK and the user has no key,
   // open the settings modal automatically on first load.
@@ -223,6 +232,15 @@ export function ChatPage() {
                   </option>
                 ))}
               </select>
+            )}
+            {isOwner && roles.length > 0 && role !== tenantDefaultRole && (
+              <button
+                onClick={makeDefault}
+                title="Set this role as the tenant-wide default for everyone"
+                className="rounded px-2 py-1 text-xs font-medium border border-slate-300 bg-white text-ink-600 hover:bg-slate-100"
+              >
+                Set default
+              </button>
             )}
             <button
               onClick={toggleRerank}
