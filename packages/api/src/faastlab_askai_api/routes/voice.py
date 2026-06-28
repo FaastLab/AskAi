@@ -135,24 +135,31 @@ async def realtime_session(
         raise HTTPException(
             status_code=503, detail="Voice needs OPENAI_API_KEY on the server."
         )
+    # GA Realtime shape: everything nests under "session"; turn detection +
+    # input transcription live under audio.input, the voice under audio.output.
     payload = {
-        "model": s.realtime_model,
-        "voice": body.voice or s.realtime_voice,
-        "modalities": ["audio", "text"],
-        "instructions": await _role_instructions(body.role),
-        "input_audio_transcription": {"model": "whisper-1"},
-        "turn_detection": {"type": "server_vad"},  # hands-free, auto turn-taking
-        "tools": [_SEARCH_TOOL],
-        "tool_choice": "auto",
+        "session": {
+            "type": "realtime",
+            "model": s.realtime_model,
+            "instructions": await _role_instructions(body.role),
+            "audio": {
+                "input": {
+                    "transcription": {"model": "whisper-1"},
+                    "turn_detection": {"type": "server_vad"},  # hands-free
+                },
+                "output": {"voice": body.voice or s.realtime_voice},
+            },
+            "tools": [_SEARCH_TOOL],
+            "tool_choice": "auto",
+        }
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as http:
             r = await http.post(
-                "https://api.openai.com/v1/realtime/sessions",
+                "https://api.openai.com/v1/realtime/client_secrets",
                 headers={
                     "Authorization": f"Bearer {s.openai_api_key}",
                     "Content-Type": "application/json",
-                    "OpenAI-Beta": "realtime=v1",
                 },
                 json=payload,
             )

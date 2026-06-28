@@ -1087,10 +1087,10 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   return ((await r.json()) as { text: string }).text;
 }
 
-/** Mint an OpenAI Realtime ephemeral session (for the live WebRTC voice). */
+/** Mint an OpenAI Realtime ephemeral session (GA: ephemeral key is `value`). */
 export async function getRealtimeSession(
   role: string | null,
-): Promise<{ client_secret?: { value: string }; model?: string } | null> {
+): Promise<{ value?: string } | null> {
   const r = await fetch("/v1/voice/realtime-session", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...allAuthHeaders() },
