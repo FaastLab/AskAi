@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Sidebar } from "../components/Sidebar";
 import { ChatHistory } from "../components/ChatHistory";
+import { RealtimeVoice } from "../components/RealtimeVoice";
 import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
@@ -50,6 +51,7 @@ export function ChatPage() {
       return next;
     });
   };
+  const [showRealtime, setShowRealtime] = useState(false); // live voice modal
   const audioRef = useRef<HTMLAudioElement | null>(null);
   async function playSpeech(text: string) {
     try {
@@ -66,6 +68,7 @@ export function ChatPage() {
   // for this conversation. `role === null` means "use the tenant default".
   const [roles, setRoles] = useState<Role[]>([]);
   const [role, setRole] = useState<string | null>(null);
+  const roleLabel = roles.find((r) => r.slug === role)?.label ?? "Default role";
   const [tenantDefaultRole, setTenantDefaultRole] = useState<string | null>(null);
   useEffect(() => {
     listRoles().then((r) => {
@@ -341,6 +344,13 @@ export function ChatPage() {
           controls={
             <>
               <button
+                onClick={() => setShowRealtime(true)}
+                title="Hands-free live voice conversation (grounded in your docs)"
+                className="w-full rounded px-2 py-1 text-xs font-medium border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100"
+              >
+                📞 Live voice
+              </button>
+              <button
                 onClick={toggleAutoRead}
                 title={autoRead ? "Read answers aloud: ON" : "Read answers aloud: OFF"}
                 className={
@@ -409,6 +419,13 @@ export function ChatPage() {
           existing={roles}
           onClose={() => setShowAddRole(false)}
           onCreated={onRoleCreated}
+        />
+      )}
+      {showRealtime && (
+        <RealtimeVoice
+          role={role}
+          roleLabel={roleLabel}
+          onClose={() => setShowRealtime(false)}
         />
       )}
     </div>

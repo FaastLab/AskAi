@@ -126,6 +126,10 @@ class Settings(BaseSettings):
     stt_model: str = "whisper-1"
     tts_model: str = "gpt-4o-mini-tts"
     tts_voice: str = "alloy"
+    # Realtime (full-duplex WebRTC voice). Conversational, server-VAD turn-taking;
+    # grounded via a search_documents tool the browser runs against the corpus.
+    realtime_model: str = "gpt-4o-realtime-preview-2024-12-17"
+    realtime_voice: str = "alloy"  # alloy|ash|ballad|coral|echo|sage|shimmer|verse
 
     # ---- Reranker ----
     # 'bge'    — local cross-encoder via sentence-transformers + torch (CPU
