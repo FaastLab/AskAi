@@ -104,8 +104,14 @@ export function RealtimeVoice({
     ) {
       const text = (msg.transcript as string) || "";
       if (text.trim()) setLines((p) => [...p, { who: "you", text: text.trim() }]);
+    } else if (
+      type === "response.function_call_arguments.done" &&
+      msg.name === "search_documents"
+    ) {
+      // GA tool event: arguments complete → run the search now.
+      void runSearchTool(msg.call_id as string, msg.arguments as string);
     } else if (type === "response.done") {
-      // Execute any function calls the model emitted this turn.
+      // Fallback: some versions surface the call only in the final output list.
       const resp = (msg.response as Record<string, unknown>) || {};
       const output = (resp.output as Array<Record<string, unknown>>) || [];
       for (const item of output) {
@@ -124,9 +130,8 @@ export function RealtimeVoice({
     (async () => {
       try {
         const session = await getRealtimeSession(role);
-        const ephemeral = session?.client_secret?.value;
+        const ephemeral = session?.value; // GA: ephemeral key is the top-level `value`
         if (!ephemeral) throw new Error("Could not start a voice session.");
-        const model = session?.model || "gpt-4o-realtime-preview-2024-12-17";
 
         const pc = new RTCPeerConnection();
         pcRef.current = pc;
@@ -161,18 +166,16 @@ export function RealtimeVoice({
         // SDP handshake with OpenAI Realtime.
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        const sdpResp = await fetch(
-          `https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
-          {
-            method: "POST",
-            body: offer.sdp,
-            headers: {
-              Authorization: `Bearer ${ephemeral}`,
-              "Content-Type": "application/sdp",
-              "OpenAI-Beta": "realtime=v1",
-            },
+        // GA WebRTC: POST the SDP to /v1/realtime/calls (model is bound in the
+        // session, so no ?model= and no beta header).
+        const sdpResp = await fetch("https://api.openai.com/v1/realtime/calls", {
+          method: "POST",
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${ephemeral}`,
+            "Content-Type": "application/sdp",
           },
-        );
+        });
         if (!sdpResp.ok) throw new Error(`Voice connect failed (${sdpResp.status}).`);
         const answerSdp = await sdpResp.text();
         if (cancelled) return;
