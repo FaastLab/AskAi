@@ -6,7 +6,7 @@ import { Composer } from "../components/Composer";
 import { Message, type ChatMessage } from "../components/Message";
 import { SettingsModal } from "../components/SettingsModal";
 import { UploadModal } from "../components/UploadModal";
-import { createRole, getConfig, getSession, listRoles, setDefaultRole, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
+import { createRole, getConfig, getSession, listRoles, setDefaultRole, speakText, streamAsk, submitFeedback, type Citation, type PublicConfig, type Role } from "../lib/api";
 import { loadAuth } from "../lib/auth";
 import { loadSettings } from "../lib/settings";
 
@@ -35,6 +35,32 @@ export function ChatPage() {
     });
   };
   const abortRef = useRef<AbortController | null>(null);
+
+  // Read answers aloud (OpenAI TTS) when on. Persisted so the choice sticks.
+  const [autoRead, setAutoRead] = useState<boolean>(
+    () => (typeof window !== "undefined"
+      ? window.localStorage.getItem("askai.autoread") === "on"
+      : false),
+  );
+  const toggleAutoRead = () => {
+    setAutoRead((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem("askai.autoread", next ? "on" : "off"); } catch { /* ignore */ }
+      if (!next) audioRef.current?.pause(); // stop any current playback
+      return next;
+    });
+  };
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  async function playSpeech(text: string) {
+    try {
+      const url = await speakText(text);
+      if (!url) return;
+      audioRef.current?.pause();
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.play().catch(() => { /* autoplay may need a gesture */ });
+    } catch { /* ignore — TTS is best-effort */ }
+  }
 
   // Assistant roles: load the tenant's roles + default, let the user pick one
   // for this conversation. `role === null` means "use the tenant default".
@@ -197,6 +223,8 @@ export function ChatPage() {
           });
         }
       }
+      // Read the finished answer aloud when auto-read is on.
+      if (autoRead && collected.trim()) playSpeech(collected);
     } catch (err) {
       console.error(err);
       setMessages((prev) => {
@@ -311,8 +339,21 @@ export function ChatPage() {
           onSubmit={ask}
           disabled={busy}
           controls={
-            roles.length > 0 ? (
-              <>
+            <>
+              <button
+                onClick={toggleAutoRead}
+                title={autoRead ? "Read answers aloud: ON" : "Read answers aloud: OFF"}
+                className={
+                  "w-full rounded px-2 py-1 text-xs font-medium border " +
+                  (autoRead
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                    : "bg-white border-slate-300 text-ink-600 hover:bg-slate-100")
+                }
+              >
+                {autoRead ? "🔊 Read: on" : "🔇 Read: off"}
+              </button>
+              {roles.length > 0 && (
+                <>
                 <span className="text-[10px] uppercase tracking-wide text-ink-400">
                   Role
                 </span>
@@ -347,8 +388,9 @@ export function ChatPage() {
                     + New role
                   </button>
                 )}
-              </>
-            ) : null
+                </>
+              )}
+            </>
           }
         />
       </main>
