@@ -1087,6 +1087,19 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   return ((await r.json()) as { text: string }).text;
 }
 
+/** Mint an OpenAI Realtime ephemeral session (for the live WebRTC voice). */
+export async function getRealtimeSession(
+  role: string | null,
+): Promise<{ client_secret?: { value: string }; model?: string } | null> {
+  const r = await fetch("/v1/voice/realtime-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ role }),
+  });
+  if (!r.ok) return null;
+  return await r.json();
+}
+
 /** Synthesize `text` with OpenAI TTS; returns an object-URL for an <audio> src. */
 export async function speakText(text: string): Promise<string | null> {
   const r = await fetch("/v1/voice/speak", {
