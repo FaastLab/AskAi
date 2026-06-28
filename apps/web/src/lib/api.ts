@@ -1071,6 +1071,33 @@ export async function getConfig(): Promise<PublicConfig | null> {
   }
 }
 
+// ---- Voice (OpenAI Whisper STT + OpenAI TTS) --------------------------------
+
+/** Send recorded mic audio to Whisper; returns the transcript text. */
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const form = new FormData();
+  form.append("file", blob, "audio.webm");
+  const r = await fetch("/v1/voice/transcribe", {
+    method: "POST",
+    // No Content-Type — the browser sets the multipart boundary itself.
+    headers: allAuthHeaders(),
+    body: form,
+  });
+  if (!r.ok) throw new Error(`Transcription failed (HTTP ${r.status})`);
+  return ((await r.json()) as { text: string }).text;
+}
+
+/** Synthesize `text` with OpenAI TTS; returns an object-URL for an <audio> src. */
+export async function speakText(text: string): Promise<string | null> {
+  const r = await fetch("/v1/voice/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...allAuthHeaders() },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) return null;
+  return URL.createObjectURL(await r.blob());
+}
+
 // ---- Assistant roles (each a named system prompt) --------------------------
 
 export type Role = { slug: string; label: string };

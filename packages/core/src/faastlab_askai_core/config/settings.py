@@ -119,6 +119,14 @@ class Settings(BaseSettings):
     # None = the SDK default (api.openai.com).
     embeddings_base_url: str | None = None
 
+    # ---- Voice (OpenAI STT/TTS for the chat mic) ----
+    # Audio endpoints are OpenAI-only (no sovereign/GPU routing): the chat mic
+    # transcribes with Whisper and reads answers back with OpenAI TTS, using
+    # openai_api_key against api.openai.com.
+    stt_model: str = "whisper-1"
+    tts_model: str = "gpt-4o-mini-tts"
+    tts_voice: str = "alloy"
+
     # ---- Reranker ----
     # 'bge'    — local cross-encoder via sentence-transformers + torch (CPU
     #            heavy on a VM). 'cohere' — managed. 'tei' — sovereign: calls
