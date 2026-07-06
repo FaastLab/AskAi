@@ -28,12 +28,18 @@ _NON_PAID_PLANS = {None, "trial", "demo"}
 # Tenant slugs we never paywall (the public free-tier KB and its template).
 _NEVER_PAYWALLED = {"demo-public", "demo-template"}
 
+# Slug prefixes for internal integrations (e.g. LegalRemindders auto-provisioned
+# tenants). These are backend-to-backend; billing lives in the wrapper app.
+_INTERNAL_PREFIXES = ("remindders-",)
+
 
 async def require_active_trial_or_subscription(
     principal: Principal = Depends(get_principal),
 ) -> Principal:
     """Dependency: 402s if the caller's tenant is past its trial with no plan."""
     if principal.tenant_slug in _NEVER_PAYWALLED:
+        return principal
+    if any(principal.tenant_slug.startswith(p) for p in _INTERNAL_PREFIXES):
         return principal
 
     sm = get_sessionmaker()
