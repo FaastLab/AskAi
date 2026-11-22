@@ -9,7 +9,7 @@ from pathlib import Path
 from faastlab_askai_indexing.connectors.base import SourceDocument
 from faastlab_askai_indexing.parsers.router import detect_content_type
 
-_DEFAULT_EXTENSIONS = (".pdf", ".docx", ".html", ".htm", ".md", ".markdown")
+_DEFAULT_EXTENSIONS = (".pdf", ".docx", ".html", ".htm", ".md", ".markdown", ".xlsx", ".xlsm")
 
 
 class FilesystemConnector:
