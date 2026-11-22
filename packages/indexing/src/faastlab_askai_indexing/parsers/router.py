@@ -11,6 +11,7 @@ from faastlab_askai_indexing.parsers.docx import DocxParser
 from faastlab_askai_indexing.parsers.html import HtmlParser
 from faastlab_askai_indexing.parsers.markdown import MarkdownParser
 from faastlab_askai_indexing.parsers.pdf import PdfParser
+from faastlab_askai_indexing.parsers.xlsx import XlsxParser
 
 _REGISTRY: dict[str, type[Parser]] = {
     "application/pdf": PdfParser,
@@ -19,6 +20,8 @@ _REGISTRY: dict[str, type[Parser]] = {
     "application/xhtml+xml": HtmlParser,
     "text/markdown": MarkdownParser,
     "text/x-markdown": MarkdownParser,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": XlsxParser,
+    "application/vnd.ms-excel.sheet.macroEnabled.12": XlsxParser,
 }
 
 _EXTENSION_TO_MIME: dict[str, str] = {
@@ -28,6 +31,8 @@ _EXTENSION_TO_MIME: dict[str, str] = {
     ".htm": "text/html",
     ".md": "text/markdown",
     ".markdown": "text/markdown",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
 }
 
 

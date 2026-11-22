@@ -237,4 +237,6 @@ def _ext_for(content_type: str | None) -> str:
         return ".md"
     if "wordprocessingml" in ct or "msword" in ct:
         return ".docx"
+    if "spreadsheetml" in ct or "ms-excel" in ct:
+        return ".xlsx"
     return ".html"  # default — most regulator URLs are HTML article pages

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { uploadDocument, type UploadResult } from "../lib/api";
 
-const ACCEPTED = ".pdf,.docx,.html,.htm,.md,.markdown,.txt";
+const ACCEPTED = ".pdf,.docx,.html,.htm,.md,.markdown,.txt,.xlsx,.xlsm";
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
 type Status = "idle" | "uploading" | "success" | "error";

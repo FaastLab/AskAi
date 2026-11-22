@@ -5,10 +5,13 @@ from __future__ import annotations
 from faastlab_askai_indexing.chunkers.base import Chunker
 from faastlab_askai_indexing.chunkers.markdown import MarkdownHeaderChunker
 from faastlab_askai_indexing.chunkers.recursive import RecursiveChunker
+from faastlab_askai_indexing.chunkers.row import RowChunker
 from faastlab_askai_indexing.parsers.base import ParsedDocument
 
 # Parsers that already produce strong heading structure → header chunker.
 _HEADING_AWARE_PARSERS = {"markdown", "python-docx", "beautifulsoup4"}
+# Spreadsheet parsers emit one block per row → one chunk per row.
+_ROW_PARSERS = {"openpyxl"}
 
 
 def get_chunker(doc: ParsedDocument) -> Chunker:
@@ -18,6 +21,8 @@ def get_chunker(doc: ParsedDocument) -> Chunker:
     everything else with strong heading metadata gets header-aware.
     """
     parser = (doc.metadata or {}).get("parser", "")
+    if parser in _ROW_PARSERS:
+        return RowChunker()
     if parser in _HEADING_AWARE_PARSERS:
         return MarkdownHeaderChunker()
     return RecursiveChunker()
